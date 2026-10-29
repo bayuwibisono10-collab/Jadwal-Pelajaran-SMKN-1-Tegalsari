@@ -3,6 +3,7 @@ import { SchoolClass, Teacher, ScheduleSlot, SchoolConfig, StaffUser } from '../
 export const DEFAULT_SCHOOL_CONFIG: SchoolConfig = {
   schoolName: 'SMKN 1 TEGALSARI',
   schoolSubtitle: 'Jadwal Pelajaran Semester Ganjil Tahun Ajaran 2026/2027',
+  schoolAddress: 'Jl. KH. Abdul Majid No.09, Krajan 2, Tegalsari, Kec. Tegalsari, Kabupaten Banyuwangi',
   academicYear: '2026/2027',
   runningAnnouncement: 'Selamat Datang di Portal Jadwal Real-Time SMKN 1 Tegalsari • SEMAKASARI • Tetap Semangat, Disiplin, dan Berprestasi! • SMK BISA - SMK HEBAT • Sholat Dhuhur Berjamaah di Masjid Sekolah.',
   bellAudioEnabled: true,

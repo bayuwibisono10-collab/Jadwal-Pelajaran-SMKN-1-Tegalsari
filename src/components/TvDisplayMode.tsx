@@ -76,9 +76,15 @@ export const TvDisplayMode: React.FC<TvDisplayModeProps> = ({
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [viewMode, setViewMode] = useState<'table' | 'card'>('table');
   
-  // Day selection for TV display (defaults to current weekday)
   const defaultDay: DayType = (currentDay === 'MINGGU' || currentDay === 'SABTU') ? 'SENIN' : currentDay;
   const [selectedDay, setSelectedDay] = useState<DayType>(defaultDay);
+
+  // Automatically adapt selected day when current day shifts in real-time
+  useEffect(() => {
+    if (currentDay !== 'MINGGU' && currentDay !== 'SABTU') {
+      setSelectedDay(currentDay);
+    }
+  }, [currentDay]);
 
   // Table Mode configuration: 'byClass' (rolling bergantian per kelas) | 'byPage30' (30 baris) | 'dual60' (60 baris)
   const [tableRollingType, setTableRollingType] = useState<'byClass' | 'byPage30' | 'dual60'>('byClass');
@@ -312,12 +318,13 @@ export const TvDisplayMode: React.FC<TvDisplayModeProps> = ({
               <h1 className="text-xl sm:text-2xl font-black tracking-tight text-white">
                 {config.schoolName}
               </h1>
-              <span className="text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 font-bold uppercase tracking-wider">
-                Digital Signage / Mode TV
+              <span className="text-[10px] sm:text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-400/30 font-bold uppercase tracking-wider flex items-center gap-1.5 shadow-2xs">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
+                <span>Database Real-Time Sinkron</span>
               </span>
             </div>
-            <p className="text-xs text-emerald-300 font-medium">
-              Jadwal Real-Time KBM • TA {config.academicYear}
+            <p className="text-xs text-emerald-300 font-medium truncate max-w-xl" title={config.schoolAddress || 'Jl. KH. Abdul Majid No.09, Krajan 2, Tegalsari, Kec. Tegalsari, Kabupaten Banyuwangi'}>
+              {config.schoolAddress || 'Jl. KH. Abdul Majid No.09, Krajan 2, Tegalsari, Kec. Tegalsari, Kabupaten Banyuwangi'} • TA {config.academicYear}
             </p>
           </div>
         </div>
@@ -886,7 +893,7 @@ export const TvDisplayMode: React.FC<TvDisplayModeProps> = ({
         </div>
         <div className="overflow-hidden whitespace-nowrap w-full">
           <div className="animate-ticker text-xs sm:text-sm font-semibold tracking-wide inline-block text-emerald-100">
-            {config.runningAnnouncement}
+            {config.schoolName} ({config.schoolAddress || 'Jl. KH. Abdul Majid No.09, Krajan 2, Tegalsari, Kec. Tegalsari, Kabupaten Banyuwangi'}) • {config.runningAnnouncement}
           </div>
         </div>
       </footer>

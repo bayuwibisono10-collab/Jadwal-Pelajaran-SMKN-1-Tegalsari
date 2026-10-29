@@ -79,6 +79,7 @@ export interface Teacher {
 export interface SchoolConfig {
   schoolName: string;
   schoolSubtitle: string;
+  schoolAddress?: string;
   academicYear: string;
   runningAnnouncement: string;
   bellAudioEnabled: boolean;

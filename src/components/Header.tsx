@@ -110,8 +110,8 @@ export const Header: React.FC<HeaderProps> = ({
                   </span>
                 </h1>
               </div>
-              <p className="text-xs text-slate-500 font-medium line-clamp-1">
-                Sistem Jadwal Pelajaran Digital • Tegalsari, Banyuwangi
+              <p className="text-xs text-slate-500 font-medium line-clamp-1" title={config.schoolAddress || 'Jl. KH. Abdul Majid No.09, Krajan 2, Tegalsari, Kec. Tegalsari, Kabupaten Banyuwangi'}>
+                {config.schoolAddress || 'Jl. KH. Abdul Majid No.09, Krajan 2, Tegalsari, Kec. Tegalsari, Kabupaten Banyuwangi'}
               </p>
             </div>
           </div>

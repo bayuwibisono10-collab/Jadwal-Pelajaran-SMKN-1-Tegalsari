@@ -2495,6 +2495,19 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
               />
             </div>
 
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1">
+                Alamat Sekolah (Resmi)
+              </label>
+              <textarea
+                rows={2}
+                value={config.schoolAddress || 'Jl. KH. Abdul Majid No.09, Krajan 2, Tegalsari, Kec. Tegalsari, Kabupaten Banyuwangi'}
+                onChange={(e) => setConfig({ ...config, schoolAddress: e.target.value })}
+                placeholder="Jl. KH. Abdul Majid No.09, Krajan 2, Tegalsari, Kec. Tegalsari, Kabupaten Banyuwangi"
+                className="w-full px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:ring-2 focus:ring-emerald-500/30 font-medium"
+              />
+            </div>
+
             {/* Active Rotating Week Setting */}
             <div className="p-4 rounded-2xl border border-emerald-200 bg-emerald-50/60">
               <label className="block text-xs font-black text-emerald-950 mb-1 flex items-center gap-1.5">

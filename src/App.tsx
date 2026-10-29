@@ -96,17 +96,26 @@ export default function App() {
   const [config, setConfig] = useState<SchoolConfig>(() => {
     try {
       const saved = localStorage.getItem('smkn1_config_v1');
-      return saved ? JSON.parse(saved) : DEFAULT_SCHOOL_CONFIG;
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return {
+          ...DEFAULT_SCHOOL_CONFIG,
+          ...parsed,
+          schoolAddress: parsed.schoolAddress || DEFAULT_SCHOOL_CONFIG.schoolAddress,
+        };
+      }
+      return DEFAULT_SCHOOL_CONFIG;
     } catch {
       return DEFAULT_SCHOOL_CONFIG;
     }
   });
 
-  // Save to LocalStorage
+  // Save to LocalStorage with Database Change Event Dispatch
   useEffect(() => {
     try {
       localStorage.setItem('smkn1_schedule_v2', JSON.stringify(schedule));
       localStorage.setItem('smkn1_schedule_v1', JSON.stringify(schedule));
+      window.dispatchEvent(new Event('smkn1_db_updated'));
     } catch {}
   }, [schedule]);
 
@@ -114,6 +123,7 @@ export default function App() {
     try {
       localStorage.setItem('smkn1_teachers_v2', JSON.stringify(teachers));
       localStorage.setItem('smkn1_teachers_v1', JSON.stringify(teachers));
+      window.dispatchEvent(new Event('smkn1_db_updated'));
     } catch {}
   }, [teachers]);
 
@@ -121,14 +131,81 @@ export default function App() {
     try {
       localStorage.setItem('smkn1_classes_v2', JSON.stringify(classes));
       localStorage.setItem('smkn1_classes_v1', JSON.stringify(classes));
+      window.dispatchEvent(new Event('smkn1_db_updated'));
     } catch {}
   }, [classes]);
 
   useEffect(() => {
     try {
       localStorage.setItem('smkn1_config_v1', JSON.stringify(config));
+      window.dispatchEvent(new Event('smkn1_db_updated'));
     } catch {}
   }, [config]);
+
+  // Automatic Real-Time Database Synchronization across tabs, windows, and TV displays
+  useEffect(() => {
+    let lastScheduleStr = '';
+    let lastClassesStr = '';
+    let lastTeachersStr = '';
+    let lastConfigStr = '';
+    let lastWeekStr = '';
+
+    const syncFromDatabase = () => {
+      try {
+        const savedSchedule = localStorage.getItem('smkn1_schedule_v2') || localStorage.getItem('smkn1_schedule_v1');
+        if (savedSchedule && savedSchedule !== lastScheduleStr) {
+          lastScheduleStr = savedSchedule;
+          const parsed = JSON.parse(savedSchedule);
+          setSchedule(parsed);
+        }
+
+        const savedTeachers = localStorage.getItem('smkn1_teachers_v2') || localStorage.getItem('smkn1_teachers_v1');
+        if (savedTeachers && savedTeachers !== lastTeachersStr) {
+          lastTeachersStr = savedTeachers;
+          setTeachers(JSON.parse(savedTeachers));
+        }
+
+        const savedClasses = localStorage.getItem('smkn1_classes_v2') || localStorage.getItem('smkn1_classes_v1');
+        if (savedClasses && savedClasses !== lastClassesStr) {
+          lastClassesStr = savedClasses;
+          setClasses(JSON.parse(savedClasses));
+        }
+
+        const savedConfig = localStorage.getItem('smkn1_config_v1');
+        if (savedConfig && savedConfig !== lastConfigStr) {
+          lastConfigStr = savedConfig;
+          const parsed = JSON.parse(savedConfig);
+          setConfig((prev) => ({
+            ...prev,
+            ...parsed,
+            schoolAddress: parsed.schoolAddress || DEFAULT_SCHOOL_CONFIG.schoolAddress,
+          }));
+        }
+
+        const savedWeek = localStorage.getItem('smkn1_active_week_v1');
+        if (savedWeek && savedWeek !== lastWeekStr) {
+          if (savedWeek === 'NORMADA_10_PRODUKTIF_11' || savedWeek === 'PRODUKTIF_10_NORMADA_11') {
+            lastWeekStr = savedWeek;
+            setActiveWeek(savedWeek);
+          }
+        }
+      } catch (err) {
+        console.error('Error synchronizing database:', err);
+      }
+    };
+
+    window.addEventListener('storage', syncFromDatabase);
+    window.addEventListener('smkn1_db_updated', syncFromDatabase);
+
+    // Interval to guarantee real-time sync on TV screens/smartboards even in background or offline-first tabs
+    const interval = setInterval(syncFromDatabase, 2000);
+
+    return () => {
+      window.removeEventListener('storage', syncFromDatabase);
+      window.removeEventListener('smkn1_db_updated', syncFromDatabase);
+      clearInterval(interval);
+    };
+  }, []);
 
   // Active Week Rotation State (Pekan Normada 10 & Produktif 11 VS Pekan Produktif 10 & Normada 11)
   const [activeWeek, setActiveWeek] = useState<WeekRotationType>(() => {
@@ -153,6 +230,7 @@ export default function App() {
     setConfig((prev) => ({ ...prev, activeWeek: nextWeek }));
     try {
       localStorage.setItem('smkn1_active_week_v1', nextWeek);
+      window.dispatchEvent(new Event('smkn1_db_updated'));
     } catch {}
   };
 
@@ -424,7 +502,7 @@ export default function App() {
               <div>
                 <h5 className="font-extrabold text-white text-sm">SMK NEGERI 1 TEGALSARI</h5>
                 <p className="text-[11px] text-slate-400">
-                  Jl. KH. Syafa'at Blokagung, Karangdoro, Kec. Tegalsari, Kab. Banyuwangi, Jawa Timur
+                  {config.schoolAddress || 'Jl. KH. Abdul Majid No.09, Krajan 2, Tegalsari, Kec. Tegalsari, Kabupaten Banyuwangi'}
                 </p>
               </div>
             </div>
