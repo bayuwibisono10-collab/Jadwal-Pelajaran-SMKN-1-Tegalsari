@@ -1,5 +1,5 @@
 {
-  "name": "Jadwal Pelajaran Real-Time SMKN 1 Tegalsari",
+  "name": "Jadwal Pelajaran SMKN 1 Tegalsari",
   "description": "Aplikasi jadwal pelajaran real-time SMKN 1 Tegalsari yang otomatis menyesuaikan hari dan jam aktif, dilengkapi dashboard publik, mode TV/smartboard, dan portal admin.",
   "requestFramePermissions": [],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

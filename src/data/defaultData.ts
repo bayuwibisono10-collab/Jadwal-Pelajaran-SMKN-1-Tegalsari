@@ -4,7 +4,7 @@ export const DEFAULT_SCHOOL_CONFIG: SchoolConfig = {
   schoolName: 'SMKN 1 TEGALSARI',
   schoolSubtitle: 'Jadwal Pelajaran Semester Ganjil Tahun Ajaran 2026/2027',
   academicYear: '2026/2027',
-  runningAnnouncement: 'Selamat Datang di Portal Jadwal Real-Time SMKN 1 Tegalsari • Tetap Semangat, Disiplin, dan Berprestasi! • SMK BISA - SMK HEBAT • Sholat Dhuhur Berjamaah di Masjid Sekolah.',
+  runningAnnouncement: 'Selamat Datang di Portal Jadwal Real-Time SMKN 1 Tegalsari • SEMAKASARI • Tetap Semangat, Disiplin, dan Berprestasi! • SMK BISA - SMK HEBAT • Sholat Dhuhur Berjamaah di Masjid Sekolah.',
   bellAudioEnabled: true,
   tvRefreshIntervalSeconds: 15,
   activeWeek: 'NORMADA_10_PRODUKTIF_11',
