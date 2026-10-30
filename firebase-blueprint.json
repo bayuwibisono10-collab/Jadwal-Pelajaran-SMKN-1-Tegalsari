@@ -1,0 +1,81 @@
+{
+  "entities": {
+    "SchoolConfig": {
+      "title": "SchoolConfig",
+      "description": "General school configuration including name, address, active rotation week, and running announcement.",
+      "type": "object",
+      "properties": {
+        "schoolName": { "type": "string" },
+        "schoolSubtitle": { "type": "string" },
+        "schoolAddress": { "type": "string" },
+        "academicYear": { "type": "string" },
+        "runningAnnouncement": { "type": "string" },
+        "bellAudioEnabled": { "type": "boolean" },
+        "tvRefreshIntervalSeconds": { "type": "number" },
+        "activeWeek": { "type": "string" }
+      },
+      "required": ["schoolName", "academicYear", "activeWeek"]
+    },
+    "ScheduleSlot": {
+      "title": "ScheduleSlot",
+      "description": "A scheduled lesson or activity slot for classes.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "day": { "type": "string" },
+        "periodNumber": { "type": "string" },
+        "timeStart": { "type": "string" },
+        "timeEnd": { "type": "string" },
+        "type": { "type": "string" },
+        "title": { "type": "string" },
+        "weekType": { "type": "string" }
+      },
+      "required": ["id", "day", "timeStart", "timeEnd", "type"]
+    },
+    "Teacher": {
+      "title": "Teacher",
+      "description": "Teacher profile and subject information.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string" },
+        "name": { "type": "string" },
+        "subject": { "type": "string" },
+        "phone": { "type": "string" },
+        "color": { "type": "string" }
+      },
+      "required": ["id", "code", "name", "subject"]
+    },
+    "SchoolClass": {
+      "title": "SchoolClass",
+      "description": "School class / study group information.",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "department": { "type": "string" },
+        "grade": { "type": "string" },
+        "roomDefault": { "type": "string" }
+      },
+      "required": ["id", "name", "department", "grade"]
+    }
+  },
+  "firestore": {
+    "/config/{configId}": {
+      "schema": "SchoolConfig",
+      "description": "Global school schedule configuration document"
+    },
+    "/schedule/{slotId}": {
+      "schema": "ScheduleSlot",
+      "description": "Individual schedule slot records"
+    },
+    "/teachers/{teacherId}": {
+      "schema": "Teacher",
+      "description": "Teacher directory documents"
+    },
+    "/classes/{classId}": {
+      "schema": "SchoolClass",
+      "description": "Class directory documents"
+    }
+  }
+}

@@ -37,6 +37,16 @@ import { AdminPortal } from './components/AdminPortal';
 import { TvDisplayMode } from './components/TvDisplayMode';
 import { AdminLoginModal } from './components/AdminLoginModal';
 import { TimeSimulationModal } from './components/TimeSimulationModal';
+import { 
+  testConnection, 
+  subscribeToRealtimeDatabase, 
+  saveConfigToFirestore, 
+  saveAllSlotsToFirestore, 
+  saveTeachersToFirestore, 
+  saveClassesToFirestore,
+  uploadFullDatabaseToFirestore,
+  fetchFullDatabaseFromFirestore
+} from './lib/firebase';
 
 export default function App() {
   // Persistent State (with graceful v2 auto-upgrade for rotation weeks & Grade XI)
@@ -142,6 +152,88 @@ export default function App() {
     } catch {}
   }, [config]);
 
+  // Cloud Sync Status (Connected to Firebase Firestore)
+  const [cloudSyncStatus, setCloudSyncStatus] = useState<'connected' | 'connecting' | 'offline'>('connecting');
+  const isCloudInitialSyncDone = useRef(false);
+
+  // Establish Firestore Real-time Cloud Sync across Dev, Publish, and TV Mode
+  useEffect(() => {
+    testConnection();
+
+    // Check if cloud database already has data; if empty, seed current local database to cloud once
+    fetchFullDatabaseFromFirestore().then((cloudData) => {
+      if (cloudData && (cloudData.config || (cloudData.schedule && cloudData.schedule.length > 0))) {
+        if (cloudData.config) {
+          setConfig((prev) => ({
+            ...prev,
+            ...cloudData.config,
+            schoolAddress: cloudData.config?.schoolAddress || prev.schoolAddress,
+          }));
+          if (cloudData.config.activeWeek) setActiveWeek(cloudData.config.activeWeek);
+        }
+        if (cloudData.schedule && cloudData.schedule.length > 0) setSchedule(cloudData.schedule);
+        if (cloudData.teachers && cloudData.teachers.length > 0) setTeachers(cloudData.teachers);
+        if (cloudData.classes && cloudData.classes.length > 0) setClasses(cloudData.classes);
+        setCloudSyncStatus('connected');
+      } else {
+        // Seed cloud database from current state so publish version receives it
+        uploadFullDatabaseToFirestore(schedule, teachers, classes, config).then(() => {
+          setCloudSyncStatus('connected');
+        });
+      }
+      isCloudInitialSyncDone.current = true;
+    }).catch(() => {
+      setCloudSyncStatus('offline');
+      isCloudInitialSyncDone.current = true;
+    });
+
+    // Subscribe to live changes from cloud (instant real-time sync)
+    const unsubscribe = subscribeToRealtimeDatabase({
+      onConfigChange: (newConfig) => {
+        setConfig((prev) => ({
+          ...prev,
+          ...newConfig,
+          schoolAddress: newConfig.schoolAddress || prev.schoolAddress,
+        }));
+        if (newConfig.activeWeek) setActiveWeek(newConfig.activeWeek);
+      },
+      onScheduleChange: (newSlots) => {
+        if (newSlots && newSlots.length > 0) {
+          setSchedule(newSlots);
+        }
+      },
+      onTeachersChange: (newTeachers) => {
+        if (newTeachers && newTeachers.length > 0) {
+          setTeachers(newTeachers);
+        }
+      },
+      onClassesChange: (newClasses) => {
+        if (newClasses && newClasses.length > 0) {
+          setClasses(newClasses);
+        }
+      },
+      onStatusChange: (status) => {
+        setCloudSyncStatus(status === 'connected' ? 'connected' : status === 'error' ? 'offline' : 'connecting');
+      }
+    });
+
+    return () => {
+      unsubscribe();
+    };
+  }, []);
+
+  const handleSyncFullDatabaseToCloud = async (): Promise<boolean> => {
+    try {
+      const ok = await uploadFullDatabaseToFirestore(schedule, teachers, classes, config);
+      if (ok) {
+        setCloudSyncStatus('connected');
+      }
+      return ok;
+    } catch {
+      return false;
+    }
+  };
+
   // Automatic Real-Time Database Synchronization across tabs, windows, and TV displays
   useEffect(() => {
     let lastScheduleStr = '';
@@ -227,7 +319,9 @@ export default function App() {
         ? 'PRODUKTIF_10_NORMADA_11' 
         : 'NORMADA_10_PRODUKTIF_11';
     setActiveWeek(nextWeek);
-    setConfig((prev) => ({ ...prev, activeWeek: nextWeek }));
+    const updatedConfig = { ...config, activeWeek: nextWeek };
+    setConfig(updatedConfig);
+    saveConfigToFirestore(updatedConfig);
     try {
       localStorage.setItem('smkn1_active_week_v1', nextWeek);
       window.dispatchEvent(new Event('smkn1_db_updated'));
@@ -365,6 +459,7 @@ export default function App() {
         onLogoutAdmin={handleLogoutAdmin}
         activeWeek={activeWeek}
         onToggleActiveWeek={handleToggleActiveWeek}
+        cloudSyncStatus={cloudSyncStatus}
       />
 
       {/* Main Content Area */}
@@ -386,6 +481,8 @@ export default function App() {
             onLogoutAdmin={handleLogoutAdmin}
             activeWeek={activeWeek}
             onToggleActiveWeek={handleToggleActiveWeek}
+            cloudSyncStatus={cloudSyncStatus}
+            onSyncToCloud={handleSyncFullDatabaseToCloud}
           />
         ) : (
           /* Public Dashboard Views */

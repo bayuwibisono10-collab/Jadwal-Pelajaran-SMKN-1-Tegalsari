@@ -26,7 +26,9 @@ import {
   CheckSquare,
   Square,
   CheckCheck,
-  SlidersHorizontal
+  SlidersHorizontal,
+  Cloud,
+  RefreshCw
 } from 'lucide-react';
 import { ScheduleSlot, Teacher, SchoolClass, SchoolConfig, DayType, SlotType, StaffUser, WeekRotationType, WEEK_ROTATION_CONFIG } from '../types/schedule';
 import { DAYS_LIST, timeStringToMinutes, minutesToTimeString } from '../utils/timeHelper';
@@ -75,6 +77,8 @@ interface AdminPortalProps {
   onLogoutAdmin?: () => void;
   activeWeek?: WeekRotationType;
   onToggleActiveWeek?: (week?: WeekRotationType) => void;
+  cloudSyncStatus?: 'connected' | 'connecting' | 'offline';
+  onSyncToCloud?: () => Promise<boolean>;
 }
 
 export const AdminPortal: React.FC<AdminPortalProps> = ({
@@ -91,12 +95,15 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   onLogoutAdmin,
   activeWeek = 'NORMADA_10_PRODUKTIF_11',
   onToggleActiveWeek,
+  cloudSyncStatus = 'connected',
+  onSyncToCloud,
 }) => {
   const [adminTab, setAdminTab] = useState<'matrix' | 'schedule' | 'teachers' | 'classes' | 'import-center' | 'settings' | 'backup' | 'staff'>('matrix');
   const [selectedDay, setSelectedDay] = useState<DayType>('SENIN');
   const [scheduleWeekFilter, setScheduleWeekFilter] = useState<WeekRotationType | 'ALL'>('ALL');
   const [editingSlot, setEditingSlot] = useState<ScheduleSlot | null>(null);
   const [isAddingSlot, setIsAddingSlot] = useState(false);
+  const [isSyncingCloud, setIsSyncingCloud] = useState(false);
 
   // Staff users state (Kurikulum, Piket, Operator)
   const [staffUsers, setStaffUsers] = useState<StaffUser[]>(() => {
@@ -2602,6 +2609,70 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         {/* ================= TAB 5: BACKUP & RESET ================= */}
         {adminTab === 'backup' && (
           <div className="max-w-2xl space-y-6">
+            
+            {/* Cloud Database Sync (Dev & Publish) */}
+            <div className="p-5 rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 via-teal-50 to-white shadow-2xs">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="p-1.5 rounded-lg bg-emerald-700 text-white shadow-2xs">
+                      <Cloud className="w-4 h-4" />
+                    </span>
+                    <h4 className="font-extrabold text-sm text-emerald-950">
+                      Sinkronisasi Database Cloud (Versi Dev & Publish)
+                    </h4>
+                    <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black border flex items-center gap-1 shadow-2xs ${
+                      cloudSyncStatus === 'connected'
+                        ? 'bg-emerald-100 text-emerald-900 border-emerald-300'
+                        : cloudSyncStatus === 'connecting'
+                        ? 'bg-amber-100 text-amber-900 border-amber-300'
+                        : 'bg-slate-100 text-slate-700 border-slate-300'
+                    }`}>
+                      <span className={`w-1.5 h-1.5 rounded-full ${
+                        cloudSyncStatus === 'connected' ? 'bg-emerald-500 animate-ping' : 'bg-slate-400'
+                      }`}></span>
+                      <span>
+                        {cloudSyncStatus === 'connected'
+                          ? '● Terhubung ke Cloud Firebase'
+                          : cloudSyncStatus === 'connecting'
+                          ? '◌ Menghubungkan...'
+                          : '○ Lokal / Offline'}
+                      </span>
+                    </span>
+                  </div>
+                  <p className="text-xs text-emerald-800/90 mt-2 leading-relaxed">
+                    Database cloud menghubungkan data jadwal, pengajar, rombel kelas, dan pengumuman antara link pengembangan (dev), versi publish (shared URL), dan layar Mode TV secara otomatis secara real-time.
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-4 flex flex-wrap gap-2.5">
+                <button
+                  type="button"
+                  onClick={async () => {
+                    setIsSyncingCloud(true);
+                    try {
+                      const ok = await onSyncToCloud?.();
+                      if (ok !== false) {
+                        showToast('Berhasil menyinkronkan seluruh database ke Cloud (Dev & Publish)');
+                      } else {
+                        showToast('Gagal menyinkronkan ke Cloud. Cek koneksi internet');
+                      }
+                    } catch {
+                      showToast('Gagal menyinkronkan ke Cloud');
+                    } finally {
+                      setIsSyncingCloud(false);
+                    }
+                  }}
+                  disabled={isSyncingCloud}
+                  className="px-4 py-2.5 bg-emerald-700 hover:bg-emerald-800 active:scale-95 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-2 cursor-pointer disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-4 h-4 ${isSyncingCloud ? 'animate-spin' : ''}`} />
+                  <span>{isSyncingCloud ? 'Sedang Menyinkronkan...' : 'Sinkronkan Database Sekarang (Kirim ke Publish)'}</span>
+                </button>
+              </div>
+            </div>
+
             {/* Reset to Image Default */}
             <div className="p-5 rounded-2xl border border-rose-200 bg-rose-50/50">
               <div className="flex items-start gap-3">

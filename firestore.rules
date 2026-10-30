@@ -1,0 +1,38 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Global Safety Net: default deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() > 0 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Public schedule configuration (read by all dashboards & TV mode)
+    match /config/{configId} {
+      allow read: if true;
+      allow write: if isValidId(configId);
+    }
+
+    // Schedule slots (read by all dashboards, TV mode, students & teachers)
+    match /schedule/{slotId} {
+      allow read: if true;
+      allow write: if isValidId(slotId);
+    }
+
+    // Teachers directory (read by all dashboards & TV mode)
+    match /teachers/{teacherId} {
+      allow read: if true;
+      allow write: if isValidId(teacherId);
+    }
+
+    // Classes directory (read by all dashboards & TV mode)
+    match /classes/{classId} {
+      allow read: if true;
+      allow write: if isValidId(classId);
+    }
+  }
+}
