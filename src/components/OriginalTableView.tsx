@@ -151,7 +151,7 @@ export const OriginalTableView: React.FC<OriginalTableViewProps> = ({
             </span>
           </div>
           <p className="text-xs text-slate-500 font-medium mt-1">
-            Format tabel matriks berdampingan (contoh: <strong>{classes[0]?.name || 'X KULINER 1'}</strong> & <strong>{classes[1]?.name || 'X KULINER 2'}</strong>) sesuai lembar jadwal resmi.
+            Format tabel matriks berdampingan antar rombel kelas sesuai lembar jadwal resmi.
           </p>
         </div>
 
@@ -237,7 +237,7 @@ export const OriginalTableView: React.FC<OriginalTableViewProps> = ({
                   : 'text-slate-600 hover:text-slate-900'
               }`}
             >
-              2 Kelas Bersandingan (Contoh: 10 Kuliner 1 & 2)
+              2 Kelas Bersandingan
             </button>
             <button
               type="button"

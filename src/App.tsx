@@ -42,6 +42,7 @@ import {
   subscribeToRealtimeDatabase, 
   saveConfigToFirestore, 
   saveAllSlotsToFirestore, 
+  syncScheduleSlotsToFirestore,
   saveTeachersToFirestore, 
   saveClassesToFirestore,
   uploadFullDatabaseToFirestore,
@@ -224,6 +225,7 @@ export default function App() {
 
   const handleSyncFullDatabaseToCloud = async (): Promise<boolean> => {
     try {
+      await syncScheduleSlotsToFirestore(schedule);
       const ok = await uploadFullDatabaseToFirestore(schedule, teachers, classes, config);
       if (ok) {
         setCloudSyncStatus('connected');

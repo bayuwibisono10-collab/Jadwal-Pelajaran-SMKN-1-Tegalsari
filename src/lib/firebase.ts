@@ -88,6 +88,27 @@ export async function saveAllSlotsToFirestore(slots: ScheduleSlot[]): Promise<vo
   }
 }
 
+export async function syncScheduleSlotsToFirestore(slots: ScheduleSlot[]): Promise<void> {
+  try {
+    const existingSnap = await getDocs(collection(db, 'schedule'));
+    const newSlotIds = new Set(slots.map(s => s.id));
+    
+    // Batch deletes for removed slots
+    const toDeleteDocs = existingSnap.docs.filter(d => !newSlotIds.has(d.id));
+    for (let i = 0; i < toDeleteDocs.length; i += 400) {
+      const chunk = toDeleteDocs.slice(i, i + 400);
+      const batch = writeBatch(db);
+      chunk.forEach(d => batch.delete(d.ref));
+      await batch.commit();
+    }
+
+    // Save remaining/new slots
+    await saveAllSlotsToFirestore(slots);
+  } catch (err) {
+    console.error('Failed to sync schedule slots with deletion to Firestore:', err);
+  }
+}
+
 export async function saveTeachersToFirestore(teachers: Teacher[]): Promise<void> {
   try {
     const batch = writeBatch(db);

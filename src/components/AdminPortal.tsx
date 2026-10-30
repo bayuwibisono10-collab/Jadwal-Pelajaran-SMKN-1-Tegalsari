@@ -39,6 +39,7 @@ import { ExcelImportScheduleModal } from './ExcelImportScheduleModal';
 import { ExcelImportClassModal } from './ExcelImportClassModal';
 import { ExcelImportAllModal } from './ExcelImportAllModal';
 import { StaffManagementTab } from './StaffManagementTab';
+import { syncScheduleSlotsToFirestore } from '../lib/firebase';
 
 // 7 Jurusan SMKN 1 Tegalsari
 export const SMKN1_DEPARTMENTS = [
@@ -194,6 +195,14 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [autoGenSelectedClassIds, setAutoGenSelectedClassIds] = useState<string[]>([]);
   const [autoGenKeepExistingData, setAutoGenKeepExistingData] = useState(true);
 
+  // 5. Delete Schedule Modal State (Menu Hapus Jadwal per Kelas / Semua Kelas)
+  const [isDeleteScheduleModalOpen, setIsDeleteScheduleModalOpen] = useState(false);
+  const [deleteTargetMode, setDeleteTargetMode] = useState<'SPECIFIC_CLASS' | 'ALL_CLASSES'>('SPECIFIC_CLASS');
+  const [deleteTargetClassId, setDeleteTargetClassId] = useState<string>(classes[0]?.id || '');
+  const [deleteDayScope, setDeleteDayScope] = useState<'CURRENT_DAY' | 'ALL_DAYS'>('ALL_DAYS');
+  const [deleteWeekScope, setDeleteWeekScope] = useState<WeekRotationType | 'ALL'>('ALL');
+  const [deleteActionType, setDeleteActionType] = useState<'CLEAR_CONTENT' | 'REMOVE_SLOT'>('CLEAR_CONTENT');
+
   const showToast = (msg: string) => {
     setToastMessage(msg);
     setTimeout(() => setToastMessage(null), 3000);
@@ -235,6 +244,127 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         setConfirmDialog(null);
       },
     });
+  };
+
+  const handleExecuteDeleteSchedule = () => {
+    const targetClass = classes.find((c) => c.id === deleteTargetClassId);
+    const targetClassName = deleteTargetMode === 'SPECIFIC_CLASS' 
+      ? (targetClass?.name || 'Kelas Terpilih') 
+      : 'SEMUA KELAS';
+    const dayLabel = deleteDayScope === 'CURRENT_DAY' ? `hari ${selectedDay}` : 'SEMUA HARI';
+    const weekLabel = deleteWeekScope === 'ALL' 
+      ? 'Semua Siklus Pekan' 
+      : deleteWeekScope === 'NORMADA_10_PRODUKTIF_11' 
+      ? 'Pekan Normada 10 & Prod 11' 
+      : 'Pekan Prod 10 & Normada 11';
+
+    let affectedCount = 0;
+
+    if (deleteTargetMode === 'SPECIFIC_CLASS') {
+      if (!deleteTargetClassId) {
+        showToast('Pilih kelas target yang ingin dihapus jadwalnya');
+        return;
+      }
+
+      setConfirmDialog({
+        isOpen: true,
+        title: `Hapus Jadwal ${targetClassName}`,
+        message: `Apakah Anda yakin ingin ${deleteActionType === 'CLEAR_CONTENT' ? 'mengosongkan mapel & pengajar' : 'menghapus'} jadwal untuk kelas "${targetClassName}" pada ${dayLabel} (${weekLabel})?`,
+        confirmText: `Ya, Hapus Jadwal ${targetClassName}`,
+        isDanger: true,
+        onConfirm: () => {
+          const updatedSchedule = schedule.map((slot) => {
+            if (deleteDayScope === 'CURRENT_DAY' && slot.day !== selectedDay) {
+              return slot;
+            }
+            if (deleteWeekScope !== 'ALL' && slot.weekType && slot.weekType !== 'ALL' && slot.weekType !== deleteWeekScope) {
+              return slot;
+            }
+
+            const currentAssignment = slot.classes[deleteTargetClassId];
+            if (currentAssignment && (currentAssignment.subject?.trim() || currentAssignment.teacherCode?.trim())) {
+              affectedCount++;
+            }
+
+            const newClasses = {
+              ...slot.classes,
+              [deleteTargetClassId]: {
+                subject: '',
+                teacherCode: '',
+                room: targetClass?.roomDefault || 'R.J1',
+              },
+            };
+            return { ...slot, classes: newClasses };
+          });
+
+          let finalSchedule = updatedSchedule;
+          if (deleteActionType === 'REMOVE_SLOT') {
+            finalSchedule = updatedSchedule.filter((slot) => {
+              if (slot.type !== 'REGULAR') return true;
+              const hasAnySubject = Object.values(slot.classes).some((asg) => asg.subject?.trim() !== '');
+              return hasAnySubject;
+            });
+          }
+
+          setSchedule(finalSchedule);
+          // Sync changes immediately to Firebase Firestore
+          syncScheduleSlotsToFirestore(finalSchedule).catch(console.error);
+          if (onSyncToCloud) onSyncToCloud().catch(console.error);
+          showToast(`Berhasil menghapus ${affectedCount} sesi jadwal KBM untuk kelas ${targetClassName} (tersinkron ke Cloud)`);
+          setIsDeleteScheduleModalOpen(false);
+          setConfirmDialog(null);
+        },
+      });
+    } else {
+      // ALL CLASSES
+      setConfirmDialog({
+        isOpen: true,
+        title: `Hapus Jadwal SEMUA KELAS`,
+        message: `PERINGATAN: Tindakan ini akan ${deleteActionType === 'CLEAR_CONTENT' ? 'mengosongkan seluruh penugasan mapel & guru' : 'menghapus bersih seluruh slot jadwal'} untuk SEMUA KELAS pada ${dayLabel} (${weekLabel}). Lanjutkan?`,
+        confirmText: `Ya, Hapus Jadwal Semua Kelas`,
+        isDanger: true,
+        onConfirm: () => {
+          if (deleteActionType === 'REMOVE_SLOT') {
+            const remainingSlots = schedule.filter((slot) => {
+              const dayMatches = deleteDayScope === 'ALL_DAYS' || slot.day === selectedDay;
+              const weekMatches = deleteWeekScope === 'ALL' || !slot.weekType || slot.weekType === 'ALL' || slot.weekType === deleteWeekScope;
+              if (dayMatches && weekMatches) {
+                affectedCount++;
+                return false;
+              }
+              return true;
+            });
+
+            setSchedule(remainingSlots);
+            // Sync changes immediately to Firebase Firestore
+            syncScheduleSlotsToFirestore(remainingSlots).catch(console.error);
+            if (onSyncToCloud) onSyncToCloud().catch(console.error);
+            showToast(`Berhasil menghapus ${affectedCount} slot jadwal KBM untuk SEMUA KELAS (tersinkron ke Cloud)`);
+          } else {
+            const updatedSchedule = schedule.map((slot) => {
+              const dayMatches = deleteDayScope === 'ALL_DAYS' || slot.day === selectedDay;
+              const weekMatches = deleteWeekScope === 'ALL' || !slot.weekType || slot.weekType === 'ALL' || slot.weekType === deleteWeekScope;
+
+              if (!dayMatches || !weekMatches) return slot;
+
+              affectedCount++;
+              return {
+                ...slot,
+                classes: createEmptySlotClasses(),
+              };
+            });
+
+            setSchedule(updatedSchedule);
+            // Sync changes immediately to Firebase Firestore
+            syncScheduleSlotsToFirestore(updatedSchedule).catch(console.error);
+            if (onSyncToCloud) onSyncToCloud().catch(console.error);
+            showToast(`Berhasil mengosongkan penugasan mapel & guru pada ${affectedCount} slot untuk SEMUA KELAS (tersinkron ke Cloud)`);
+          }
+          setIsDeleteScheduleModalOpen(false);
+          setConfirmDialog(null);
+        },
+      });
+    }
   };
 
   const handleBulkDeleteAllDaySlots = () => {
@@ -1200,7 +1330,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
           }`}
         >
           <Table className="w-3.5 h-3.5 text-emerald-600" />
-          <span>Tabel Matriks Lengkap (10 Kuliner 1 & 2)</span>
+          <span>Tabel Matriks Lengkap</span>
           <span className="text-[9px] bg-emerald-100 text-emerald-800 font-extrabold px-2 py-0.5 rounded-full border border-emerald-300">
             Format Asli
           </span>
@@ -1317,7 +1447,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   </span>
                 </div>
                 <p className="text-xs text-emerald-200/90 mt-1.5 max-w-2xl leading-relaxed">
-                  Tampilan matriks bersandingan per kelas persis seperti di dashboard publik dan lembar fisik/foto jadwal SMKN 1 Tegalsari (seperti <strong>10 Kuliner 1</strong> & <strong>10 Kuliner 2</strong>). Anda dapat memilih pasangan kelas, memfilter hari, melakukan edit langsung per slot pada kolom aksi, atau mengimpor file Excel jadwal baru.
+                  Tampilan matriks bersandingan per kelas persis seperti di dashboard publik dan lembar fisik/foto jadwal SMKN 1 Tegalsari. Anda dapat memilih pasangan kelas, memfilter hari, melakukan edit langsung per slot pada kolom aksi, atau mengimpor file Excel jadwal baru.
                 </p>
               </div>
 
@@ -1337,6 +1467,18 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 >
                   <Plus className="w-4 h-4" />
                   <span>Tambah Slot ({selectedDay})</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (classes.length > 0 && !deleteTargetClassId) setDeleteTargetClassId(classes[0].id);
+                    setIsDeleteScheduleModalOpen(true);
+                  }}
+                  className="px-3.5 py-2 bg-rose-700 hover:bg-rose-600 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 border border-rose-500"
+                  title="Menu Hapus Jadwal (Per Kelas atau Semua Kelas)"
+                >
+                  <Trash2 className="w-4 h-4 text-rose-200" />
+                  <span>Hapus Jadwal</span>
                 </button>
               </div>
             </div>
@@ -1444,6 +1586,19 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 >
                   <Plus className="w-4 h-4" />
                   <span>Tambah Slot ({selectedDay})</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (classes.length > 0 && !deleteTargetClassId) setDeleteTargetClassId(classes[0].id);
+                    setIsDeleteScheduleModalOpen(true);
+                  }}
+                  className="px-3.5 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 shadow-xs border border-rose-500"
+                  title="Menu Hapus Jadwal (Per Kelas atau Semua Kelas)"
+                >
+                  <Trash2 className="w-4 h-4 text-rose-100" />
+                  <span>Hapus Jadwal</span>
                 </button>
               </div>
             </div>
@@ -2682,7 +2837,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                     Reset ke Jadwal Standar SMKN 1 Tegalsari (Sesuai Foto)
                   </h4>
                   <p className="text-xs text-rose-700 mt-1">
-                    Kembalikan seluruh jadwal hari Senin hingga Jumat (X Kuliner 1 & 2) persis seperti pada foto yang diunggah. Semua modifikasi manual akan dikembalikan ke data awal.
+                    Kembalikan seluruh jadwal hari Senin hingga Jumat persis seperti pada foto yang diunggah. Semua modifikasi manual akan dikembalikan ke data awal.
                   </p>
                   <button
                     onClick={() => {
@@ -2703,6 +2858,34 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   >
                     <RotateCcw className="w-3.5 h-3.5" />
                     <span>Reset Data Jadwal Asli</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Targeted Schedule Deletion Option */}
+            <div className="p-5 rounded-2xl border border-rose-200 bg-rose-50/40">
+              <div className="flex items-start gap-3">
+                <span className="p-2 bg-rose-100 text-rose-700 rounded-xl mt-0.5">
+                  <Trash2 className="w-5 h-5" />
+                </span>
+                <div>
+                  <h4 className="font-extrabold text-sm text-rose-950">
+                    Menu Hapus Jadwal (Per Kelas Tertentu / Semua Kelas)
+                  </h4>
+                  <p className="text-xs text-rose-800 mt-1 leading-relaxed">
+                    Fitur terarah untuk mengosongkan mata pelajaran dan guru untuk rombel kelas tertentu saja (tanpa mengganggu rombel kelas lain), atau menghapus jadwal seluruh kelas sekaligus berdasarkan pilihan hari dan siklus pekan.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (classes.length > 0 && !deleteTargetClassId) setDeleteTargetClassId(classes[0].id);
+                      setIsDeleteScheduleModalOpen(true);
+                    }}
+                    className="mt-3 px-4 py-2 bg-rose-700 hover:bg-rose-800 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 shadow-xs"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-rose-200" />
+                    <span>Buka Menu Hapus Jadwal</span>
                   </button>
                 </div>
               </div>
@@ -3911,6 +4094,283 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
               >
                 <Sparkles className="w-4 h-4 text-emerald-200" />
                 <span>Jalankan Tambah Otomatis</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Hapus Jadwal (Per Kelas atau Semua Kelas) */}
+      {isDeleteScheduleModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs no-print animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl max-w-lg w-full p-6 shadow-2xl border border-rose-200 max-h-[92vh] overflow-y-auto animate-in zoom-in-95 duration-150 text-slate-800">
+            {/* Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-rose-100 mb-4">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-rose-100 text-rose-600 flex items-center justify-center shrink-0">
+                  <Trash2 className="w-5 h-5" />
+                </div>
+                <div>
+                  <h4 className="font-extrabold text-slate-900 text-base">
+                    Menu Hapus Jadwal KBM
+                  </h4>
+                  <p className="text-xs text-rose-600 font-bold">
+                    Per Kelas Tertentu atau Semua Kelas Sekaligus
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsDeleteScheduleModalOpen(false)}
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-700 flex items-center justify-center font-bold text-sm transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-4 text-xs">
+              {/* Opsi 1: Target Kelas */}
+              <div>
+                <label className="block font-extrabold text-slate-800 mb-1.5 uppercase text-[11px] tracking-wider">
+                  1. Pilih Target Kelas
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setDeleteTargetMode('SPECIFIC_CLASS')}
+                    className={`p-3 rounded-2xl border text-left transition-all ${
+                      deleteTargetMode === 'SPECIFIC_CLASS'
+                        ? 'border-rose-500 bg-rose-50 text-rose-950 ring-2 ring-rose-500/20'
+                        : 'border-slate-200 hover:bg-slate-50 text-slate-700'
+                    }`}
+                  >
+                    <div className="font-extrabold text-xs flex items-center gap-1.5">
+                      <GraduationCap className="w-4 h-4 text-rose-600" />
+                      <span>Per Kelas Tertentu</span>
+                    </div>
+                    <p className="text-[10px] text-slate-500 mt-1 leading-normal">
+                      Hanya menghapus jadwal 1 kelas yang dipilih. Kelas lain tetap aman.
+                    </p>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setDeleteTargetMode('ALL_CLASSES')}
+                    className={`p-3 rounded-2xl border text-left transition-all ${
+                      deleteTargetMode === 'ALL_CLASSES'
+                        ? 'border-rose-600 bg-rose-100/70 text-rose-950 ring-2 ring-rose-600/20'
+                        : 'border-slate-200 hover:bg-slate-50 text-slate-700'
+                    }`}
+                  >
+                    <div className="font-extrabold text-xs flex items-center gap-1.5">
+                      <Layers className="w-4 h-4 text-rose-700" />
+                      <span>Semua Kelas Sekaligus</span>
+                    </div>
+                    <p className="text-[10px] text-slate-500 mt-1 leading-normal">
+                      Berlaku ke seluruh ({classes.length}) rombel kelas di SMKN 1 Tegalsari.
+                    </p>
+                  </button>
+                </div>
+
+                {/* Dropdown Pemilihan Kelas jika mode SPECIFIC_CLASS */}
+                {deleteTargetMode === 'SPECIFIC_CLASS' && (
+                  <div className="mt-2.5 p-3 bg-slate-50 rounded-2xl border border-slate-200">
+                    <label className="block font-bold text-slate-700 mb-1">
+                      Pilih Rombel Kelas Target:
+                    </label>
+                    <select
+                      value={deleteTargetClassId}
+                      onChange={(e) => setDeleteTargetClassId(e.target.value)}
+                      className="w-full px-3 py-2 bg-white border border-slate-300 rounded-xl font-extrabold text-slate-800 text-xs focus:ring-2 focus:ring-rose-500 outline-hidden"
+                    >
+                      {classes.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name} — {c.department} ({c.roomDefault || 'Ruang Standar'})
+                        </option>
+                      ))}
+                    </select>
+                    {deleteTargetClassId && (
+                      <div className="mt-2 flex items-center gap-2 text-[11px] text-slate-600 font-medium">
+                        <span className="px-2 py-0.5 rounded-md bg-rose-100 text-rose-700 font-bold">
+                          {classes.find((c) => c.id === deleteTargetClassId)?.name || deleteTargetClassId}
+                        </span>
+                        <span>Ruang default: {classes.find((c) => c.id === deleteTargetClassId)?.roomDefault || '-'}</span>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* Opsi 2: Cakupan Hari */}
+              <div>
+                <label className="block font-extrabold text-slate-800 mb-1.5 uppercase text-[11px] tracking-wider">
+                  2. Cakupan Hari
+                </label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setDeleteDayScope('ALL_DAYS')}
+                    className={`p-2.5 rounded-xl border text-left font-bold text-xs transition-all ${
+                      deleteDayScope === 'ALL_DAYS'
+                        ? 'border-rose-500 bg-rose-50 text-rose-950 ring-1 ring-rose-500'
+                        : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    <span>Semua Hari (Senin - Jumat)</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setDeleteDayScope('CURRENT_DAY')}
+                    className={`p-2.5 rounded-xl border text-left font-bold text-xs transition-all ${
+                      deleteDayScope === 'CURRENT_DAY'
+                        ? 'border-rose-500 bg-rose-50 text-rose-950 ring-1 ring-rose-500'
+                        : 'border-slate-200 text-slate-600 hover:bg-slate-50'
+                    }`}
+                  >
+                    <span>Hanya Hari {selectedDay}</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Opsi 3: Siklus Pekan */}
+              <div>
+                <label className="block font-extrabold text-slate-800 mb-1.5 uppercase text-[11px] tracking-wider">
+                  3. Siklus Pekan (Normada vs Produktif)
+                </label>
+                <div className="space-y-1.5">
+                  <label className="flex items-center gap-2.5 p-2 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="deleteWeek"
+                      checked={deleteWeekScope === 'ALL'}
+                      onChange={() => setDeleteWeekScope('ALL')}
+                      className="text-rose-600 focus:ring-rose-500"
+                    />
+                    <span className="font-bold text-slate-800">Semua Siklus Pekan (Umum & Keduanya)</span>
+                  </label>
+                  <label className="flex items-center gap-2.5 p-2 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="deleteWeek"
+                      checked={deleteWeekScope === 'NORMADA_10_PRODUKTIF_11'}
+                      onChange={() => setDeleteWeekScope('NORMADA_10_PRODUKTIF_11')}
+                      className="text-rose-600 focus:ring-rose-500"
+                    />
+                    <span className="font-bold text-slate-800">Hanya Pekan Normada 10 & Produktif 11</span>
+                  </label>
+                  <label className="flex items-center gap-2.5 p-2 rounded-xl border border-slate-200 hover:bg-slate-50 cursor-pointer">
+                    <input
+                      type="radio"
+                      name="deleteWeek"
+                      checked={deleteWeekScope === 'PRODUKTIF_10_NORMADA_11'}
+                      onChange={() => setDeleteWeekScope('PRODUKTIF_10_NORMADA_11')}
+                      className="text-rose-600 focus:ring-rose-500"
+                    />
+                    <span className="font-bold text-slate-800">Hanya Pekan Produktif 10 & Normada 11</span>
+                  </label>
+                </div>
+              </div>
+
+              {/* Opsi 4: Jenis Tindakan Penghapusan */}
+              <div>
+                <label className="block font-extrabold text-slate-800 mb-1.5 uppercase text-[11px] tracking-wider">
+                  4. Jenis Tindakan
+                </label>
+                <div className="space-y-2">
+                  <label className={`flex items-start gap-3 p-3 rounded-2xl border cursor-pointer transition-all ${
+                    deleteActionType === 'CLEAR_CONTENT'
+                      ? 'border-emerald-500 bg-emerald-50/70 text-emerald-950 ring-1 ring-emerald-500'
+                      : 'border-slate-200 text-slate-700 hover:bg-slate-50'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="deleteAction"
+                      checked={deleteActionType === 'CLEAR_CONTENT'}
+                      onChange={() => setDeleteActionType('CLEAR_CONTENT')}
+                      className="mt-0.5 text-emerald-600 focus:ring-emerald-500"
+                    />
+                    <div>
+                      <div className="font-extrabold flex items-center gap-2">
+                        <span>Kosongkan Mapel & Pengajar Saja</span>
+                        <span className="text-[10px] px-2 py-0.2 rounded-full bg-emerald-200 text-emerald-800 font-extrabold">
+                          Direkomendasikan
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
+                        Struktur jam KBM (Jam ke-1 s.d ke-10, jam mulai & selesai) tetap ada dan utuh. Hanya isi mapel & guru yang dikosongkan agar siap diinput/diimpor ulang.
+                      </p>
+                    </div>
+                  </label>
+
+                  <label className={`flex items-start gap-3 p-3 rounded-2xl border cursor-pointer transition-all ${
+                    deleteActionType === 'REMOVE_SLOT'
+                      ? 'border-rose-500 bg-rose-50 text-rose-950 ring-1 ring-rose-500'
+                      : 'border-slate-200 text-slate-700 hover:bg-slate-50'
+                  }`}>
+                    <input
+                      type="radio"
+                      name="deleteAction"
+                      checked={deleteActionType === 'REMOVE_SLOT'}
+                      onChange={() => setDeleteActionType('REMOVE_SLOT')}
+                      className="mt-0.5 text-rose-600 focus:ring-rose-500"
+                    />
+                    <div>
+                      <div className="font-extrabold text-rose-900">
+                        Hapus Bersih Baris / Slot Waktu
+                      </div>
+                      <p className="text-[11px] text-slate-500 mt-0.5 leading-relaxed">
+                        {deleteTargetMode === 'ALL_CLASSES'
+                          ? 'Menghapus seluruh baris slot jadwal dari database sehingga baris jam hilang sepenuhnya.'
+                          : 'Menghapus penugasan rombel ini dari slot jadwal.'}
+                      </p>
+                    </div>
+                  </label>
+                </div>
+              </div>
+
+              {/* Live Preview Summary Box */}
+              <div className="p-3.5 bg-gradient-to-r from-amber-50 to-rose-50 rounded-2xl border border-amber-200 text-amber-950 space-y-1.5">
+                <div className="flex items-center gap-2 font-black text-xs text-amber-900">
+                  <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                  <span>Ringkasan Dampak Penghapusan:</span>
+                </div>
+                <div className="text-[11px] space-y-1 text-slate-700 pl-6">
+                  <p>
+                    • Target: <strong className="text-slate-900">{deleteTargetMode === 'SPECIFIC_CLASS' ? (classes.find((c) => c.id === deleteTargetClassId)?.name || 'Kelas Terpilih') : `Semua (${classes.length}) Kelas SMKN 1 Tegalsari`}</strong>
+                  </p>
+                  <p>
+                    • Hari: <strong className="text-slate-900">{deleteDayScope === 'ALL_DAYS' ? 'Semua Hari (Senin - Jumat)' : `Hari ${selectedDay}`}</strong>
+                  </p>
+                  <p>
+                    • Siklus Pekan: <strong className="text-slate-900">{deleteWeekScope === 'ALL' ? 'Semua Siklus Pekan' : deleteWeekScope === 'NORMADA_10_PRODUKTIF_11' ? 'Normada 10 & Prod 11' : 'Prod 10 & Normada 11'}</strong>
+                  </p>
+                  <p>
+                    • Tindakan: <strong className="text-slate-900">{deleteActionType === 'CLEAR_CONTENT' ? 'Kosongkan Mapel & Guru (Struktur Jam Utuh)' : 'Hapus Slot Jadwal'}</strong>
+                  </p>
+                  <p className="text-emerald-700 font-bold pt-1">
+                    ✓ Otomatis tersinkron ke Cloud Firebase Firestore & Mode TV Display
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            {/* Modal Actions */}
+            <div className="pt-4 mt-4 border-t border-slate-100 flex gap-2.5">
+              <button
+                type="button"
+                onClick={() => setIsDeleteScheduleModalOpen(false)}
+                className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleExecuteDeleteSchedule}
+                className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-rose-600/20 flex items-center justify-center gap-1.5"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>Hapus Jadwal Sekarang</span>
               </button>
             </div>
           </div>
