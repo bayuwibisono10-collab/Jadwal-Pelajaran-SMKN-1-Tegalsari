@@ -16,7 +16,8 @@ import {
   SchoolClass, 
   SchoolConfig, 
   DayType,
-  WeekRotationType 
+  WeekRotationType,
+  StaffRole 
 } from './types/schedule';
 import { 
   getDayNameIndonesian, 
@@ -427,10 +428,26 @@ export default function App() {
     localStorage.removeItem('smkn1_staff_users_v1');
   };
 
+  const [currentUserRole, setCurrentUserRole] = useState<StaffRole>(() => {
+    try {
+      const savedRole = localStorage.getItem('smkn1_admin_role') || sessionStorage.getItem('smkn1_admin_role');
+      if (savedRole === 'piket' || savedRole === 'operator' || savedRole === 'kurikulum') {
+        return savedRole as StaffRole;
+      }
+      return 'kurikulum';
+    } catch {
+      return 'kurikulum';
+    }
+  });
+
   // Admin Login / Logout
-  const handleLoginSuccess = () => {
+  const handleLoginSuccess = (userRole?: string) => {
     setIsAdminLoggedIn(true);
     localStorage.setItem('smkn1_admin_logged', 'true');
+    if (userRole === 'piket' || userRole === 'operator' || userRole === 'kurikulum') {
+      setCurrentUserRole(userRole as StaffRole);
+      localStorage.setItem('smkn1_admin_role', userRole);
+    }
     setIsAdminModalOpen(false);
     setActiveView('admin');
   };
@@ -438,6 +455,10 @@ export default function App() {
   const handleLogoutAdmin = () => {
     setIsAdminLoggedIn(false);
     localStorage.removeItem('smkn1_admin_logged');
+    localStorage.removeItem('smkn1_admin_role');
+    localStorage.removeItem('smkn1_admin_user');
+    sessionStorage.removeItem('smkn1_admin_role');
+    setCurrentUserRole('kurikulum');
     if (activeView === 'admin') {
       setActiveView('status-table');
     }
@@ -485,6 +506,7 @@ export default function App() {
             onToggleActiveWeek={handleToggleActiveWeek}
             cloudSyncStatus={cloudSyncStatus}
             onSyncToCloud={handleSyncFullDatabaseToCloud}
+            currentUserRole={currentUserRole}
           />
         ) : (
           /* Public Dashboard Views */

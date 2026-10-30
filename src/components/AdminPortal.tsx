@@ -28,9 +28,11 @@ import {
   CheckCheck,
   SlidersHorizontal,
   Cloud,
-  RefreshCw
+  RefreshCw,
+  Lock,
+  ShieldCheck
 } from 'lucide-react';
-import { ScheduleSlot, Teacher, SchoolClass, SchoolConfig, DayType, SlotType, StaffUser, WeekRotationType, WEEK_ROTATION_CONFIG } from '../types/schedule';
+import { ScheduleSlot, Teacher, SchoolClass, SchoolConfig, DayType, SlotType, StaffUser, StaffRole, WeekRotationType, WEEK_ROTATION_CONFIG } from '../types/schedule';
 import { DAYS_LIST, timeStringToMinutes, minutesToTimeString } from '../utils/timeHelper';
 import { DEFAULT_STAFF_USERS, DEFAULT_SCHEDULE } from '../data/defaultData';
 import { OriginalTableView } from './OriginalTableView';
@@ -80,6 +82,7 @@ interface AdminPortalProps {
   onToggleActiveWeek?: (week?: WeekRotationType) => void;
   cloudSyncStatus?: 'connected' | 'connecting' | 'offline';
   onSyncToCloud?: () => Promise<boolean>;
+  currentUserRole?: StaffRole;
 }
 
 export const AdminPortal: React.FC<AdminPortalProps> = ({
@@ -98,6 +101,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   onToggleActiveWeek,
   cloudSyncStatus = 'connected',
   onSyncToCloud,
+  currentUserRole,
 }) => {
   const [adminTab, setAdminTab] = useState<'matrix' | 'schedule' | 'teachers' | 'classes' | 'import-center' | 'settings' | 'backup' | 'staff'>('matrix');
   const [selectedDay, setSelectedDay] = useState<DayType>('SENIN');
@@ -105,6 +109,27 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [editingSlot, setEditingSlot] = useState<ScheduleSlot | null>(null);
   const [isAddingSlot, setIsAddingSlot] = useState(false);
   const [isSyncingCloud, setIsSyncingCloud] = useState(false);
+
+  // Active Role & Name resolution
+  const [activeRole] = useState<StaffRole>(() => {
+    if (currentUserRole) return currentUserRole;
+    try {
+      const r = localStorage.getItem('smkn1_admin_role') || sessionStorage.getItem('smkn1_admin_role');
+      if (r === 'piket' || r === 'operator' || r === 'kurikulum') return r as StaffRole;
+    } catch {}
+    return 'kurikulum';
+  });
+
+  const [activeUserName] = useState<string>(() => {
+    try {
+      return localStorage.getItem('smkn1_admin_user') || (activeRole === 'kurikulum' ? 'Waka Kurikulum' : activeRole === 'piket' ? 'Guru Piket' : 'Operator KBM');
+    } catch {
+      return 'Petugas KBM';
+    }
+  });
+
+  // Strict role check: Akses Petugas hanya bisa dibuka oleh peran 'kurikulum'
+  const isKurikulum = activeRole === 'kurikulum';
 
   // Staff users state (Kurikulum, Piket, Operator)
   const [staffUsers, setStaffUsers] = useState<StaffUser[]>(() => {
@@ -1285,13 +1310,21 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       {/* Admin Header */}
       <div className="bg-slate-900 text-white p-5 sm:p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse"></span>
             <h2 className="text-xl sm:text-2xl font-black tracking-tight">
-              Portal Admin Kurikulum
+              Portal Admin KBM
             </h2>
             <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-950 text-emerald-300 font-bold border border-emerald-800">
               Sesi Aktif
+            </span>
+            <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold border capitalize flex items-center gap-1 ${
+              isKurikulum
+                ? 'bg-purple-950 text-purple-200 border-purple-700'
+                : 'bg-emerald-950 text-emerald-300 border-emerald-700'
+            }`}>
+              <ShieldCheck className="w-3 h-3 text-emerald-400" />
+              <span>Peran: <strong>{activeRole}</strong> ({activeUserName})</span>
             </span>
           </div>
           <p className="text-xs text-slate-400 mt-1">
@@ -1399,20 +1432,37 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
           <span>Pengumuman & Ticker</span>
         </button>
 
-        <button
-          onClick={() => setAdminTab('staff')}
-          className={`py-3 px-3.5 border-b-2 flex items-center gap-2 transition-colors whitespace-nowrap ${
-            adminTab === 'staff'
-              ? 'border-emerald-600 text-emerald-800 bg-emerald-50/50 font-black'
-              : 'border-transparent text-slate-600 hover:text-slate-900'
-          }`}
-        >
-          <KeyRound className="w-3.5 h-3.5 text-emerald-600" />
-          <span>Akses Petugas</span>
-          <span className="text-[9px] bg-purple-100 text-purple-800 font-extrabold px-1.5 py-0.2 rounded-full border border-purple-200">
-            {staffUsers.length}
-          </span>
-        </button>
+        {isKurikulum ? (
+          <button
+            onClick={() => setAdminTab('staff')}
+            className={`py-3 px-3.5 border-b-2 flex items-center gap-2 transition-colors whitespace-nowrap ${
+              adminTab === 'staff'
+                ? 'border-emerald-600 text-emerald-800 bg-emerald-50/50 font-black'
+                : 'border-transparent text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            <KeyRound className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Akses Petugas</span>
+            <span className="text-[9px] bg-purple-100 text-purple-800 font-extrabold px-1.5 py-0.2 rounded-full border border-purple-200">
+              {staffUsers.length}
+            </span>
+          </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => {
+              showToast('Akses Ditolak: Menu Akses Petugas hanya dapat dibuka oleh akun dengan peran Kurikulum.');
+            }}
+            className="py-3 px-3.5 border-b-2 border-transparent text-slate-400 hover:text-slate-600 flex items-center gap-2 transition-colors whitespace-nowrap cursor-not-allowed group"
+            title="Terkunci: Menu Akses Petugas hanya bisa dibuka oleh peran Kurikulum"
+          >
+            <Lock className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+            <span className="text-slate-500">Akses Petugas</span>
+            <span className="text-[9px] bg-amber-50 text-amber-800 border border-amber-200 font-bold px-1.5 py-0.2 rounded-full flex items-center gap-0.5">
+              Khusus Kurikulum
+            </span>
+          </button>
+        )}
 
         <button
           onClick={() => setAdminTab('backup')}
@@ -2926,11 +2976,35 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
         {/* ================= TAB 7: AKSES PETUGAS (KURIKULUM, PIKET, OPERATOR) ================= */}
         {adminTab === 'staff' && (
-          <StaffManagementTab
-            staffUsers={staffUsers}
-            setStaffUsers={setStaffUsers}
-            showToast={showToast}
-          />
+          isKurikulum ? (
+            <StaffManagementTab
+              staffUsers={staffUsers}
+              setStaffUsers={setStaffUsers}
+              showToast={showToast}
+            />
+          ) : (
+            <div className="p-8 max-w-xl mx-auto text-center bg-white rounded-3xl border border-rose-200 shadow-sm my-6">
+              <div className="w-16 h-16 rounded-3xl bg-rose-100 text-rose-600 flex items-center justify-center mx-auto mb-4 shadow-xs">
+                <Lock className="w-8 h-8" />
+              </div>
+              <span className="text-xs font-black uppercase tracking-wider px-3 py-1 bg-rose-100 text-rose-800 rounded-full border border-rose-200">
+                Hak Akses Dibatasi
+              </span>
+              <h3 className="text-lg font-extrabold text-slate-900 mt-3 mb-2">
+                Menu Akses Petugas Khusus Waka Kurikulum
+              </h3>
+              <p className="text-xs text-slate-600 leading-relaxed mb-6">
+                Halaman ini memuat data kredensial, username, dan kata sandi petugas SMKN 1 Tegalsari. Anda saat ini login dengan peran <strong className="text-rose-700 capitalize">"{activeRole}"</strong> ({activeUserName}). Berdasarkan kebijakan keamanan sekolah, hanya akun dengan peran <strong className="text-emerald-800 font-extrabold">Kurikulum</strong> yang berwenang membuka dan mengelola menu ini.
+              </p>
+              <button
+                type="button"
+                onClick={() => setAdminTab('matrix')}
+                className="px-5 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl shadow-xs transition-colors"
+              >
+                ← Kembali ke Tabel Matriks
+              </button>
+            </div>
+          )
         )}
 
       </div>
