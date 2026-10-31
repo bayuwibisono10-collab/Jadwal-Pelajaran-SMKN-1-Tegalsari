@@ -30,7 +30,8 @@ import {
   Cloud,
   RefreshCw,
   Lock,
-  ShieldCheck
+  ShieldCheck,
+  Printer
 } from 'lucide-react';
 import { ScheduleSlot, Teacher, SchoolClass, SchoolConfig, DayType, SlotType, StaffUser, StaffRole, WeekRotationType, WEEK_ROTATION_CONFIG } from '../types/schedule';
 import { DAYS_LIST, timeStringToMinutes, minutesToTimeString } from '../utils/timeHelper';
@@ -41,7 +42,14 @@ import { ExcelImportScheduleModal } from './ExcelImportScheduleModal';
 import { ExcelImportClassModal } from './ExcelImportClassModal';
 import { ExcelImportAllModal } from './ExcelImportAllModal';
 import { StaffManagementTab } from './StaffManagementTab';
-import { syncScheduleSlotsToFirestore } from '../lib/firebase';
+import { 
+  syncScheduleSlotsToFirestore, 
+  deleteSlotFromFirestore, 
+  deleteTeacherFromFirestore, 
+  deleteClassFromFirestore, 
+  syncTeachersToFirestore, 
+  syncClassesToFirestore 
+} from '../lib/firebase';
 
 // 7 Jurusan SMKN 1 Tegalsari
 export const SMKN1_DEPARTMENTS = [
@@ -81,7 +89,7 @@ interface AdminPortalProps {
   activeWeek?: WeekRotationType;
   onToggleActiveWeek?: (week?: WeekRotationType) => void;
   cloudSyncStatus?: 'connected' | 'connecting' | 'offline';
-  onSyncToCloud?: () => Promise<boolean>;
+  onSyncToCloud?: (sched?: ScheduleSlot[], t?: Teacher[], c?: SchoolClass[], cfg?: SchoolConfig) => Promise<boolean>;
   currentUserRole?: StaffRole;
 }
 
@@ -103,7 +111,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   onSyncToCloud,
   currentUserRole,
 }) => {
-  const [adminTab, setAdminTab] = useState<'matrix' | 'schedule' | 'teachers' | 'classes' | 'import-center' | 'settings' | 'backup' | 'staff'>('matrix');
+  const [adminTab, setAdminTab] = useState<'schedule' | 'teachers' | 'classes' | 'import-center' | 'settings' | 'backup' | 'staff'>('schedule');
+  const [isPrintLandscapeOpen, setIsPrintLandscapeOpen] = useState(false);
   const [selectedDay, setSelectedDay] = useState<DayType>('SENIN');
   const [scheduleWeekFilter, setScheduleWeekFilter] = useState<WeekRotationType | 'ALL'>('ALL');
   const [editingSlot, setEditingSlot] = useState<ScheduleSlot | null>(null);
@@ -227,6 +236,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   const [deleteDayScope, setDeleteDayScope] = useState<'CURRENT_DAY' | 'ALL_DAYS'>('ALL_DAYS');
   const [deleteWeekScope, setDeleteWeekScope] = useState<WeekRotationType | 'ALL'>('ALL');
   const [deleteActionType, setDeleteActionType] = useState<'CLEAR_CONTENT' | 'REMOVE_SLOT'>('CLEAR_CONTENT');
+  const [deleteConfirmChecked, setDeleteConfirmChecked] = useState(false);
 
   const showToast = (msg: string) => {
     setToastMessage(msg);
@@ -263,7 +273,15 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       confirmText: `Ya, Hapus (${selectedSlotIds.length})`,
       isDanger: true,
       onConfirm: () => {
-        setSchedule((prev) => prev.filter((s) => !selectedSlotIds.includes(s.id)));
+        const newSched = schedule.filter((s) => !selectedSlotIds.includes(s.id));
+        setSchedule(newSched);
+        try {
+          localStorage.setItem('smkn1_schedule_v2', JSON.stringify(newSched));
+          localStorage.setItem('smkn1_schedule_v1', JSON.stringify(newSched));
+          window.dispatchEvent(new Event('smkn1_db_updated'));
+        } catch {}
+        syncScheduleSlotsToFirestore(newSched).catch(console.error);
+        if (onSyncToCloud) onSyncToCloud(newSched, teachers, classes, config).catch(console.error);
         showToast(`Berhasil menghapus ${selectedSlotIds.length} slot jadwal`);
         setSelectedSlotIds([]);
         setConfirmDialog(null);
@@ -272,7 +290,8 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   };
 
   const handleExecuteDeleteSchedule = () => {
-    const targetClass = classes.find((c) => c.id === deleteTargetClassId);
+    const activeTargetClassId = deleteTargetClassId || classes[0]?.id || '';
+    const targetClass = classes.find((c) => c.id === activeTargetClassId);
     const targetClassName = deleteTargetMode === 'SPECIFIC_CLASS' 
       ? (targetClass?.name || 'Kelas Terpilih') 
       : 'SEMUA KELAS';
@@ -286,109 +305,113 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     let affectedCount = 0;
 
     if (deleteTargetMode === 'SPECIFIC_CLASS') {
-      if (!deleteTargetClassId) {
+      if (!activeTargetClassId) {
         showToast('Pilih kelas target yang ingin dihapus jadwalnya');
         return;
       }
 
-      setConfirmDialog({
-        isOpen: true,
-        title: `Hapus Jadwal ${targetClassName}`,
-        message: `Apakah Anda yakin ingin ${deleteActionType === 'CLEAR_CONTENT' ? 'mengosongkan mapel & pengajar' : 'menghapus'} jadwal untuk kelas "${targetClassName}" pada ${dayLabel} (${weekLabel})?`,
-        confirmText: `Ya, Hapus Jadwal ${targetClassName}`,
-        isDanger: true,
-        onConfirm: () => {
-          const updatedSchedule = schedule.map((slot) => {
-            if (deleteDayScope === 'CURRENT_DAY' && slot.day !== selectedDay) {
-              return slot;
-            }
-            if (deleteWeekScope !== 'ALL' && slot.weekType && slot.weekType !== 'ALL' && slot.weekType !== deleteWeekScope) {
-              return slot;
-            }
+      const updatedSchedule = schedule.map((slot) => {
+        if (deleteDayScope === 'CURRENT_DAY' && slot.day !== selectedDay) {
+          return slot;
+        }
+        if (deleteWeekScope !== 'ALL' && slot.weekType && slot.weekType !== 'ALL' && slot.weekType !== deleteWeekScope) {
+          return slot;
+        }
 
-            const currentAssignment = slot.classes[deleteTargetClassId];
-            if (currentAssignment && (currentAssignment.subject?.trim() || currentAssignment.teacherCode?.trim())) {
-              affectedCount++;
-            }
+        const currentAssignment = slot.classes?.[activeTargetClassId];
+        if (currentAssignment && (currentAssignment.subject?.trim() || currentAssignment.teacherCode?.trim())) {
+          affectedCount++;
+        }
 
-            const newClasses = {
-              ...slot.classes,
-              [deleteTargetClassId]: {
-                subject: '',
-                teacherCode: '',
-                room: targetClass?.roomDefault || 'R.J1',
-              },
-            };
-            return { ...slot, classes: newClasses };
-          });
-
-          let finalSchedule = updatedSchedule;
-          if (deleteActionType === 'REMOVE_SLOT') {
-            finalSchedule = updatedSchedule.filter((slot) => {
-              if (slot.type !== 'REGULAR') return true;
-              const hasAnySubject = Object.values(slot.classes).some((asg) => asg.subject?.trim() !== '');
-              return hasAnySubject;
-            });
-          }
-
-          setSchedule(finalSchedule);
-          // Sync changes immediately to Firebase Firestore
-          syncScheduleSlotsToFirestore(finalSchedule).catch(console.error);
-          if (onSyncToCloud) onSyncToCloud().catch(console.error);
-          showToast(`Berhasil menghapus ${affectedCount} sesi jadwal KBM untuk kelas ${targetClassName} (tersinkron ke Cloud)`);
-          setIsDeleteScheduleModalOpen(false);
-          setConfirmDialog(null);
-        },
+        const newClasses = {
+          ...(slot.classes || {}),
+          [activeTargetClassId]: {
+            subject: '',
+            teacherCode: '',
+            room: targetClass?.roomDefault || 'R.J1',
+          },
+        };
+        return { ...slot, classes: newClasses };
       });
+
+      let finalSchedule = updatedSchedule;
+      if (deleteActionType === 'REMOVE_SLOT') {
+        finalSchedule = updatedSchedule.filter((slot) => {
+          if (slot.type !== 'REGULAR') return true;
+          // Keep slot only if at least one other class has an active subject
+          const hasOtherSubject = Object.entries(slot.classes || {}).some(
+            ([clsId, asg]) => clsId !== activeTargetClassId && asg?.subject && asg.subject.trim() !== '' && asg.subject.trim() !== '-'
+          );
+          return hasOtherSubject;
+        });
+      }
+
+      setSchedule(finalSchedule);
+      try {
+        localStorage.setItem('smkn1_schedule_v2', JSON.stringify(finalSchedule));
+        localStorage.setItem('smkn1_schedule_v1', JSON.stringify(finalSchedule));
+        window.dispatchEvent(new Event('smkn1_db_updated'));
+      } catch {}
+
+      syncScheduleSlotsToFirestore(finalSchedule).catch(console.error);
+      if (onSyncToCloud) onSyncToCloud(finalSchedule, teachers, classes, config).catch(console.error);
+
+      showToast(`Berhasil menghapus ${affectedCount} sesi jadwal KBM untuk kelas ${targetClassName} (tersinkron ke Cloud)`);
+      setIsDeleteScheduleModalOpen(false);
+      setDeleteConfirmChecked(false);
     } else {
       // ALL CLASSES
-      setConfirmDialog({
-        isOpen: true,
-        title: `Hapus Jadwal SEMUA KELAS`,
-        message: `PERINGATAN: Tindakan ini akan ${deleteActionType === 'CLEAR_CONTENT' ? 'mengosongkan seluruh penugasan mapel & guru' : 'menghapus bersih seluruh slot jadwal'} untuk SEMUA KELAS pada ${dayLabel} (${weekLabel}). Lanjutkan?`,
-        confirmText: `Ya, Hapus Jadwal Semua Kelas`,
-        isDanger: true,
-        onConfirm: () => {
-          if (deleteActionType === 'REMOVE_SLOT') {
-            const remainingSlots = schedule.filter((slot) => {
-              const dayMatches = deleteDayScope === 'ALL_DAYS' || slot.day === selectedDay;
-              const weekMatches = deleteWeekScope === 'ALL' || !slot.weekType || slot.weekType === 'ALL' || slot.weekType === deleteWeekScope;
-              if (dayMatches && weekMatches) {
-                affectedCount++;
-                return false;
-              }
-              return true;
-            });
-
-            setSchedule(remainingSlots);
-            // Sync changes immediately to Firebase Firestore
-            syncScheduleSlotsToFirestore(remainingSlots).catch(console.error);
-            if (onSyncToCloud) onSyncToCloud().catch(console.error);
-            showToast(`Berhasil menghapus ${affectedCount} slot jadwal KBM untuk SEMUA KELAS (tersinkron ke Cloud)`);
-          } else {
-            const updatedSchedule = schedule.map((slot) => {
-              const dayMatches = deleteDayScope === 'ALL_DAYS' || slot.day === selectedDay;
-              const weekMatches = deleteWeekScope === 'ALL' || !slot.weekType || slot.weekType === 'ALL' || slot.weekType === deleteWeekScope;
-
-              if (!dayMatches || !weekMatches) return slot;
-
-              affectedCount++;
-              return {
-                ...slot,
-                classes: createEmptySlotClasses(),
-              };
-            });
-
-            setSchedule(updatedSchedule);
-            // Sync changes immediately to Firebase Firestore
-            syncScheduleSlotsToFirestore(updatedSchedule).catch(console.error);
-            if (onSyncToCloud) onSyncToCloud().catch(console.error);
-            showToast(`Berhasil mengosongkan penugasan mapel & guru pada ${affectedCount} slot untuk SEMUA KELAS (tersinkron ke Cloud)`);
+      if (deleteActionType === 'REMOVE_SLOT') {
+        const remainingSlots = schedule.filter((slot) => {
+          const dayMatches = deleteDayScope === 'ALL_DAYS' || slot.day === selectedDay;
+          const weekMatches = deleteWeekScope === 'ALL' || !slot.weekType || slot.weekType === 'ALL' || slot.weekType === deleteWeekScope;
+          if (dayMatches && weekMatches) {
+            affectedCount++;
+            return false;
           }
-          setIsDeleteScheduleModalOpen(false);
-          setConfirmDialog(null);
-        },
-      });
+          return true;
+        });
+
+        setSchedule(remainingSlots);
+        try {
+          localStorage.setItem('smkn1_schedule_v2', JSON.stringify(remainingSlots));
+          localStorage.setItem('smkn1_schedule_v1', JSON.stringify(remainingSlots));
+          window.dispatchEvent(new Event('smkn1_db_updated'));
+        } catch {}
+
+        syncScheduleSlotsToFirestore(remainingSlots).catch(console.error);
+        if (onSyncToCloud) onSyncToCloud(remainingSlots, teachers, classes, config).catch(console.error);
+
+        showToast(`Berhasil menghapus ${affectedCount} slot jadwal KBM untuk SEMUA KELAS (tersinkron ke Cloud)`);
+      } else {
+        const updatedSchedule = schedule.map((slot) => {
+          const dayMatches = deleteDayScope === 'ALL_DAYS' || slot.day === selectedDay;
+          const weekMatches = deleteWeekScope === 'ALL' || !slot.weekType || slot.weekType === 'ALL' || slot.weekType === deleteWeekScope;
+
+          if (!dayMatches || !weekMatches) return slot;
+
+          affectedCount++;
+          return {
+            ...slot,
+            classes: createEmptySlotClasses(),
+          };
+        });
+
+        setSchedule(updatedSchedule);
+        try {
+          localStorage.setItem('smkn1_schedule_v2', JSON.stringify(updatedSchedule));
+          localStorage.setItem('smkn1_schedule_v1', JSON.stringify(updatedSchedule));
+          window.dispatchEvent(new Event('smkn1_db_updated'));
+        } catch {}
+
+        syncScheduleSlotsToFirestore(updatedSchedule).catch(console.error);
+        if (onSyncToCloud) onSyncToCloud(updatedSchedule, teachers, classes, config).catch(console.error);
+
+        showToast(`Berhasil mengosongkan penugasan mapel & guru pada ${affectedCount} slot untuk SEMUA KELAS (tersinkron ke Cloud)`);
+      }
+
+      setIsDeleteScheduleModalOpen(false);
+      setDeleteConfirmChecked(false);
     }
   };
 
@@ -405,7 +428,15 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       confirmText: `Ya, Kosongkan Slot ${selectedDay}`,
       isDanger: true,
       onConfirm: () => {
-        setSchedule((prev) => prev.filter((s) => s.day !== selectedDay));
+        const newSched = schedule.filter((s) => s.day !== selectedDay);
+        setSchedule(newSched);
+        try {
+          localStorage.setItem('smkn1_schedule_v2', JSON.stringify(newSched));
+          localStorage.setItem('smkn1_schedule_v1', JSON.stringify(newSched));
+          window.dispatchEvent(new Event('smkn1_db_updated'));
+        } catch {}
+        syncScheduleSlotsToFirestore(newSched).catch(console.error);
+        if (onSyncToCloud) onSyncToCloud(newSched, teachers, classes, config).catch(console.error);
         showToast(`Semua slot hari ${selectedDay} berhasil dikosongkan`);
         setSelectedSlotIds([]);
         setConfirmDialog(null);
@@ -476,7 +507,15 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       confirmText: `Ya, Hapus (${selectedTeacherIds.length})`,
       isDanger: true,
       onConfirm: () => {
-        setTeachers((prev) => prev.filter((t) => !selectedTeacherIds.includes(t.id)));
+        const newTeachers = teachers.filter((t) => !selectedTeacherIds.includes(t.id));
+        setTeachers(newTeachers);
+        try {
+          localStorage.setItem('smkn1_teachers_v2', JSON.stringify(newTeachers));
+          localStorage.setItem('smkn1_teachers_v1', JSON.stringify(newTeachers));
+          window.dispatchEvent(new Event('smkn1_db_updated'));
+        } catch {}
+        syncTeachersToFirestore(newTeachers).catch(console.error);
+        if (onSyncToCloud) onSyncToCloud(schedule, newTeachers, classes, config).catch(console.error);
         showToast(`Berhasil menghapus ${selectedTeacherIds.length} data guru`);
         setSelectedTeacherIds([]);
         setConfirmDialog(null);
@@ -497,6 +536,13 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       isDanger: true,
       onConfirm: () => {
         setTeachers([]);
+        try {
+          localStorage.setItem('smkn1_teachers_v2', JSON.stringify([]));
+          localStorage.setItem('smkn1_teachers_v1', JSON.stringify([]));
+          window.dispatchEvent(new Event('smkn1_db_updated'));
+        } catch {}
+        syncTeachersToFirestore([]).catch(console.error);
+        if (onSyncToCloud) onSyncToCloud(schedule, [], classes, config).catch(console.error);
         showToast('Semua data guru berhasil dihapus');
         setSelectedTeacherIds([]);
         setConfirmDialog(null);
@@ -569,7 +615,15 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       confirmText: `Ya, Hapus (${selectedClassIds.length})`,
       isDanger: true,
       onConfirm: () => {
-        setClasses((prev) => prev.filter((c) => !selectedClassIds.includes(c.id)));
+        const newClasses = classes.filter((c) => !selectedClassIds.includes(c.id));
+        setClasses(newClasses);
+        try {
+          localStorage.setItem('smkn1_classes_v2', JSON.stringify(newClasses));
+          localStorage.setItem('smkn1_classes_v1', JSON.stringify(newClasses));
+          window.dispatchEvent(new Event('smkn1_db_updated'));
+        } catch {}
+        syncClassesToFirestore(newClasses).catch(console.error);
+        if (onSyncToCloud) onSyncToCloud(schedule, teachers, newClasses, config).catch(console.error);
         showToast(`Berhasil menghapus ${selectedClassIds.length} kelas`);
         setSelectedClassIds([]);
         setConfirmDialog(null);
@@ -591,7 +645,15 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       isDanger: true,
       onConfirm: () => {
         const defaultClass = classes[0];
-        setClasses([defaultClass]);
+        const newClasses = [defaultClass];
+        setClasses(newClasses);
+        try {
+          localStorage.setItem('smkn1_classes_v2', JSON.stringify(newClasses));
+          localStorage.setItem('smkn1_classes_v1', JSON.stringify(newClasses));
+          window.dispatchEvent(new Event('smkn1_db_updated'));
+        } catch {}
+        syncClassesToFirestore(newClasses).catch(console.error);
+        if (onSyncToCloud) onSyncToCloud(schedule, teachers, newClasses, config).catch(console.error);
         showToast(`Rombel kelas berhasil dikosongkan. Tersisa 1 kelas: ${defaultClass.name}`);
         setSelectedClassIds([]);
         setConfirmDialog(null);
@@ -681,7 +743,16 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       confirmText: 'Ya, Hapus Slot',
       isDanger: true,
       onConfirm: () => {
-        setSchedule((prev) => prev.filter((s) => s.id !== id));
+        const newSched = schedule.filter((s) => s.id !== id);
+        setSchedule(newSched);
+        try {
+          localStorage.setItem('smkn1_schedule_v2', JSON.stringify(newSched));
+          localStorage.setItem('smkn1_schedule_v1', JSON.stringify(newSched));
+          window.dispatchEvent(new Event('smkn1_db_updated'));
+        } catch {}
+        deleteSlotFromFirestore(id).catch(console.error);
+        syncScheduleSlotsToFirestore(newSched).catch(console.error);
+        if (onSyncToCloud) onSyncToCloud(newSched, teachers, classes, config).catch(console.error);
         showToast('Slot jadwal berhasil dihapus');
         setConfirmDialog(null);
       },
@@ -732,10 +803,26 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     }
 
     if (isAddingSlot) {
-      setSchedule((prev) => [...prev, { ...slotData, id: `slot-${Date.now()}` }]);
+      const newSched = [...schedule, { ...slotData, id: `slot-${Date.now()}` }];
+      setSchedule(newSched);
+      try {
+        localStorage.setItem('smkn1_schedule_v2', JSON.stringify(newSched));
+        localStorage.setItem('smkn1_schedule_v1', JSON.stringify(newSched));
+        window.dispatchEvent(new Event('smkn1_db_updated'));
+      } catch {}
+      syncScheduleSlotsToFirestore(newSched).catch(console.error);
+      if (onSyncToCloud) onSyncToCloud(newSched, teachers, classes, config).catch(console.error);
       showToast('Slot jadwal baru berhasil ditambahkan');
     } else {
-      setSchedule((prev) => prev.map((s) => (s.id === slotData.id ? slotData : s)));
+      const newSched = schedule.map((s) => (s.id === slotData.id ? slotData : s));
+      setSchedule(newSched);
+      try {
+        localStorage.setItem('smkn1_schedule_v2', JSON.stringify(newSched));
+        localStorage.setItem('smkn1_schedule_v1', JSON.stringify(newSched));
+        window.dispatchEvent(new Event('smkn1_db_updated'));
+      } catch {}
+      syncScheduleSlotsToFirestore(newSched).catch(console.error);
+      if (onSyncToCloud) onSyncToCloud(newSched, teachers, classes, config).catch(console.error);
       showToast('Perubahan slot jadwal berhasil disimpan');
     }
     setEditingSlot(null);
@@ -756,7 +843,16 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       confirmText: 'Ya, Hapus Guru',
       isDanger: true,
       onConfirm: () => {
-        setTeachers((prev) => prev.filter((t) => t.id !== id));
+        const newTeachers = teachers.filter((t) => t.id !== id);
+        setTeachers(newTeachers);
+        try {
+          localStorage.setItem('smkn1_teachers_v2', JSON.stringify(newTeachers));
+          localStorage.setItem('smkn1_teachers_v1', JSON.stringify(newTeachers));
+          window.dispatchEvent(new Event('smkn1_db_updated'));
+        } catch {}
+        deleteTeacherFromFirestore(id).catch(console.error);
+        syncTeachersToFirestore(newTeachers).catch(console.error);
+        if (onSyncToCloud) onSyncToCloud(schedule, newTeachers, classes, config).catch(console.error);
         showToast(`Data guru "${targetName}" berhasil dihapus`);
         setConfirmDialog(null);
       },
@@ -852,7 +948,16 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       confirmText: 'Ya, Hapus Kelas',
       isDanger: true,
       onConfirm: () => {
-        setClasses((prev) => prev.filter((c) => c.id !== id));
+        const newClasses = classes.filter((c) => c.id !== id);
+        setClasses(newClasses);
+        try {
+          localStorage.setItem('smkn1_classes_v2', JSON.stringify(newClasses));
+          localStorage.setItem('smkn1_classes_v1', JSON.stringify(newClasses));
+          window.dispatchEvent(new Event('smkn1_db_updated'));
+        } catch {}
+        deleteClassFromFirestore(id).catch(console.error);
+        syncClassesToFirestore(newClasses).catch(console.error);
+        if (onSyncToCloud) onSyncToCloud(schedule, teachers, newClasses, config).catch(console.error);
         showToast(`Kelas "${name}" berhasil dihapus`);
         setConfirmDialog(null);
       },
@@ -1355,25 +1460,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       {/* Admin Tabs */}
       <div className="border-b border-slate-200 bg-slate-50 px-4 sm:px-6 flex items-center gap-2 overflow-x-auto text-xs font-bold">
         <button
-          onClick={() => setAdminTab('matrix')}
-          className={`py-3 px-3.5 border-b-2 flex items-center gap-2 transition-colors whitespace-nowrap ${
-            adminTab === 'matrix'
-              ? 'border-emerald-600 text-emerald-800 bg-emerald-50/50 font-black'
-              : 'border-transparent text-slate-600 hover:text-slate-900'
-          }`}
-        >
-          <Table className="w-3.5 h-3.5 text-emerald-600" />
-          <span>Tabel Matriks Lengkap</span>
-          <span className="text-[9px] bg-emerald-100 text-emerald-800 font-extrabold px-2 py-0.5 rounded-full border border-emerald-300">
-            Format Asli
-          </span>
-        </button>
-
-        <button
           onClick={() => setAdminTab('schedule')}
           className={`py-3 px-3.5 border-b-2 flex items-center gap-2 transition-colors whitespace-nowrap ${
             adminTab === 'schedule'
-              ? 'border-emerald-600 text-emerald-800 bg-emerald-50/50'
+              ? 'border-emerald-600 text-emerald-800 bg-emerald-50/50 font-black'
               : 'border-transparent text-slate-600 hover:text-slate-900'
           }`}
         >
@@ -1480,88 +1570,6 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
       {/* Main Admin Tab Content */}
       <div className="p-4 sm:p-6">
 
-        {/* ================= TAB 0: TABEL MATRIKS LENGKAP PER KELAS ================= */}
-        {adminTab === 'matrix' && (
-          <div>
-            <div className="mb-6 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-gradient-to-r from-emerald-950 via-emerald-900 to-emerald-800 text-white p-5 rounded-3xl shadow-sm border border-emerald-800">
-              <div>
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="p-1.5 rounded-xl bg-emerald-700/80 text-emerald-200">
-                    <Table className="w-5 h-5" />
-                  </span>
-                  <h3 className="text-lg sm:text-xl font-extrabold tracking-tight">
-                    Tabel Matriks Lengkap per Kelas (Format Resmi SMKN 1 Tegalsari)
-                  </h3>
-                  <span className="text-xs bg-emerald-700 text-emerald-100 font-extrabold px-2.5 py-0.5 rounded-full border border-emerald-500">
-                    Mode Admin Aktif
-                  </span>
-                </div>
-                <p className="text-xs text-emerald-200/90 mt-1.5 max-w-2xl leading-relaxed">
-                  Tampilan matriks bersandingan per kelas persis seperti di dashboard publik dan lembar fisik/foto jadwal SMKN 1 Tegalsari. Anda dapat memilih pasangan kelas, memfilter hari, melakukan edit langsung per slot pada kolom aksi, atau mengimpor file Excel jadwal baru.
-                </p>
-              </div>
-
-              <div className="flex items-center gap-2 flex-wrap shrink-0">
-                <button
-                  type="button"
-                  onClick={() => setIsScheduleExcelOpen(true)}
-                  className="px-3.5 py-2 bg-white text-emerald-900 hover:bg-emerald-50 rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5"
-                >
-                  <FileSpreadsheet className="w-4 h-4 text-emerald-700" />
-                  <span>Impor Jadwal (Per Kelas / Excel)</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => handleOpenAddSlot(selectedDay)}
-                  className="px-3.5 py-2 bg-emerald-700 hover:bg-emerald-600 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 border border-emerald-500"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Tambah Slot ({selectedDay})</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (classes.length > 0 && !deleteTargetClassId) setDeleteTargetClassId(classes[0].id);
-                    setIsDeleteScheduleModalOpen(true);
-                  }}
-                  className="px-3.5 py-2 bg-rose-700 hover:bg-rose-600 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-1.5 border border-rose-500"
-                  title="Menu Hapus Jadwal (Per Kelas atau Semua Kelas)"
-                >
-                  <Trash2 className="w-4 h-4 text-rose-200" />
-                  <span>Hapus Jadwal</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Embedded Matrix Table with Admin capabilities */}
-            <OriginalTableView
-              schedule={schedule}
-              teachers={teachers}
-              classes={classes}
-              currentDay="SENIN"
-              filterDay={selectedDay}
-              isAdmin={true}
-              onEditSlot={(slot) => {
-                setEditingSlot(slot);
-                setIsAddingSlot(false);
-              }}
-              onDeleteSlot={handleDeleteSlot}
-              onAddNewSlot={() => handleOpenAddSlot(selectedDay)}
-              onOpenExcelImport={() => setIsScheduleExcelOpen(true)}
-              activeWeek={scheduleWeekFilter !== 'ALL' ? scheduleWeekFilter : activeWeek}
-              onToggleActiveWeek={(w) => {
-                if (w) {
-                  setScheduleWeekFilter(w);
-                  if (onToggleActiveWeek) onToggleActiveWeek(w);
-                } else {
-                  setScheduleWeekFilter('ALL');
-                }
-              }}
-              onSelectDay={(d) => setSelectedDay(d)}
-            />
-          </div>
-        )}
-
         {/* ================= TAB 1: JADWAL SLOT ================= */}
         {adminTab === 'schedule' && (
           <div>
@@ -1622,11 +1630,22 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                 </button>
 
                 <button
+                  type="button"
                   onClick={() => setIsScheduleExcelOpen(true)}
                   className="px-3.5 py-2 bg-emerald-800 hover:bg-emerald-900 text-white rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 shadow-xs border border-emerald-700"
                 >
                   <FileSpreadsheet className="w-4 h-4 text-emerald-300" />
                   <span>Impor Jadwal (Excel)</span>
+                </button>
+
+                <button
+                  type="button"
+                  onClick={() => setIsPrintLandscapeOpen(true)}
+                  className="px-3.5 py-2 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold transition-colors flex items-center gap-1.5 shadow-xs border border-emerald-600"
+                  title="Cetak Jadwal (Format Landscape Asli)"
+                >
+                  <Printer className="w-4 h-4 text-emerald-200" />
+                  <span>Cetak Jadwal (Landscape)</span>
                 </button>
 
                 <button
@@ -2998,10 +3017,10 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
               </p>
               <button
                 type="button"
-                onClick={() => setAdminTab('matrix')}
+                onClick={() => setAdminTab('schedule')}
                 className="px-5 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white text-xs font-bold rounded-xl shadow-xs transition-colors"
               >
-                ← Kembali ke Tabel Matriks
+                ← Kembali ke Kelola Jadwal Slot
               </button>
             </div>
           )
@@ -4427,21 +4446,42 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   </p>
                 </div>
               </div>
+
+              {/* Checkbox Konfirmasi Sadar */}
+              <label className="flex items-start gap-2.5 p-3 rounded-2xl bg-rose-50 border border-rose-300 cursor-pointer text-slate-800 hover:bg-rose-100/60 transition-colors">
+                <input
+                  type="checkbox"
+                  checked={deleteConfirmChecked}
+                  onChange={(e) => setDeleteConfirmChecked(e.target.checked)}
+                  className="mt-0.5 w-4 h-4 text-rose-600 rounded border-rose-400 focus:ring-rose-500 cursor-pointer"
+                />
+                <span className="font-extrabold text-[11px] text-rose-950 leading-relaxed">
+                  Saya yakin dan mengonfirmasi untuk memproses penghapusan jadwal KBM sesuai kriteria di atas.
+                </span>
+              </label>
             </div>
 
             {/* Modal Actions */}
             <div className="pt-4 mt-4 border-t border-slate-100 flex gap-2.5">
               <button
                 type="button"
-                onClick={() => setIsDeleteScheduleModalOpen(false)}
+                onClick={() => {
+                  setIsDeleteScheduleModalOpen(false);
+                  setDeleteConfirmChecked(false);
+                }}
                 className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors"
               >
                 Batal
               </button>
               <button
                 type="button"
+                disabled={!deleteConfirmChecked}
                 onClick={handleExecuteDeleteSchedule}
-                className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-rose-600/20 flex items-center justify-center gap-1.5"
+                className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all shadow-md flex items-center justify-center gap-1.5 ${
+                  deleteConfirmChecked
+                    ? 'bg-rose-600 hover:bg-rose-700 text-white shadow-rose-600/20 cursor-pointer'
+                    : 'bg-slate-200 text-slate-400 cursor-not-allowed shadow-none'
+                }`}
               >
                 <Trash2 className="w-4 h-4" />
                 <span>Hapus Jadwal Sekarang</span>
@@ -4451,9 +4491,60 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         </div>
       )}
 
+      {/* Modal Cetak Jadwal Landscape (Format Resmi Bersih) */}
+      {isPrintLandscapeOpen && (
+        <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/80 backdrop-blur-xs flex flex-col p-4 sm:p-6 print:p-0 print:bg-white animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl shadow-2xl border border-slate-200 w-full max-w-7xl mx-auto flex flex-col overflow-hidden print:border-none print:shadow-none print:rounded-none">
+            {/* Modal Header */}
+            <div className="p-4 sm:px-6 sm:py-4 bg-emerald-900 text-white flex items-center justify-between gap-4 no-print">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 bg-emerald-800 rounded-xl text-emerald-200">
+                  <Printer className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-sm sm:text-base tracking-tight">Cetak Jadwal Pelajaran (Landscape)</h3>
+                  <p className="text-xs text-emerald-200">Format matriks resmi SMKN 1 Tegalsari siap cetak / PDF</p>
+                </div>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => window.print()}
+                  className="px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-extrabold rounded-xl text-xs flex items-center gap-1.5 shadow-sm transition-colors cursor-pointer"
+                >
+                  <Printer className="w-4 h-4" />
+                  <span>Cetak / Simpan PDF</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setIsPrintLandscapeOpen(false)}
+                  className="px-3 py-2 bg-emerald-800 hover:bg-emerald-700 text-emerald-100 rounded-xl text-xs font-bold transition-colors cursor-pointer"
+                >
+                  Tutup
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body: Embedded OriginalTableView */}
+            <div className="p-4 sm:p-6 overflow-x-auto print:p-0">
+              <OriginalTableView
+                schedule={schedule}
+                teachers={teachers}
+                classes={classes}
+                currentDay="SENIN"
+                filterDay={selectedDay}
+                isAdmin={false}
+                activeWeek={scheduleWeekFilter !== 'ALL' ? scheduleWeekFilter : activeWeek}
+                config={config}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Global In-App Confirmation Modal (No window.confirm or alert!) */}
       {confirmDialog && confirmDialog.isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs no-print animate-in fade-in duration-150">
+        <div className="fixed inset-0 z-[70] flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs no-print animate-in fade-in duration-150">
           <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 animate-in zoom-in-95 duration-150 text-slate-800">
             <div className="flex items-center gap-3.5 mb-3.5">
               <div className={`w-12 h-12 rounded-2xl flex items-center justify-center shrink-0 ${

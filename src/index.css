@@ -1,7 +1,12 @@
 @import "tailwindcss";
 
 @layer utilities {
-  /* Print styling for printing timetable */
+  /* Print styling for printing timetable in clean landscape format */
+  @page {
+    size: landscape;
+    margin: 6mm 8mm;
+  }
+
   @media print {
     .no-print {
       display: none !important;
@@ -9,10 +14,49 @@
     .print-only {
       display: block !important;
     }
-    body {
+    html, body {
       background: white !important;
       color: black !important;
-      font-size: 11pt;
+      font-size: 8.5pt !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      width: 100% !important;
+      height: auto !important;
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    main {
+      padding: 0 !important;
+      margin: 0 !important;
+      max-width: 100% !important;
+      width: 100% !important;
+    }
+    /* Ensure table borders and cells print crisp and sharp */
+    .print-table {
+      width: 100% !important;
+      border-collapse: collapse !important;
+      table-layout: auto !important;
+    }
+    .print-table th,
+    .print-table td {
+      border: 1px solid #000000 !important;
+      padding: 3px 4px !important;
+      font-size: 8pt !important;
+      line-height: 1.15 !important;
+    }
+    /* Prevent page break inside table row */
+    tr {
+      break-inside: avoid !important;
+      page-break-inside: avoid !important;
+    }
+    /* Clean container for printing without shadows or rounded corners */
+    .print-clean-container {
+      border: none !important;
+      box-shadow: none !important;
+      border-radius: 0 !important;
+      margin: 0 !important;
+      padding: 0 !important;
+      background: transparent !important;
     }
   }
 }

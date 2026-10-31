@@ -19,8 +19,8 @@ interface HeaderProps {
   currentTime: Date;
   currentDay: DayType | 'MINGGU' | 'SABTU';
   isSimulated: boolean;
-  activeView: 'status-table' | 'today' | 'original' | 'teachers' | 'rooms' | 'admin';
-  setActiveView: (view: 'status-table' | 'today' | 'original' | 'teachers' | 'rooms' | 'admin') => void;
+  activeView: 'status-table' | 'today' | 'teachers' | 'rooms' | 'admin';
+  setActiveView: (view: 'status-table' | 'today' | 'teachers' | 'rooms' | 'admin') => void;
   openTvMode: () => void;
   openSimulationModal: () => void;
   openAdminModal: () => void;
@@ -324,21 +324,6 @@ export const Header: React.FC<HeaderProps> = ({
             >
               <Clock className="w-3.5 h-3.5" />
               <span>Timeline Hari Ini</span>
-            </button>
-
-            <button
-              onClick={() => setActiveView('original')}
-              className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg whitespace-nowrap transition-colors ${
-                activeView === 'original'
-                  ? 'bg-emerald-700 text-white font-bold shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-              }`}
-            >
-              <Calendar className="w-3.5 h-3.5" />
-              <span>Tabel Matriks Lengkap (Format Asli)</span>
-              <span className="text-[10px] px-1 py-0.2 rounded bg-amber-400 text-amber-950 font-bold">
-                Foto
-              </span>
             </button>
 
             <button

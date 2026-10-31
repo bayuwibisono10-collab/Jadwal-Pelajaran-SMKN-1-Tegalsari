@@ -26,8 +26,8 @@ interface LiveHeroBannerProps {
   teachers: Teacher[];
   currentRealDay: DayType | 'MINGGU' | 'SABTU';
   isLiveDay: boolean;
-  activeView?: 'status-table' | 'today' | 'original' | 'teachers' | 'rooms' | 'admin';
-  setActiveView?: (view: 'status-table' | 'today' | 'original' | 'teachers' | 'rooms' | 'admin') => void;
+  activeView?: 'status-table' | 'today' | 'teachers' | 'rooms' | 'admin';
+  setActiveView?: (view: 'status-table' | 'today' | 'teachers' | 'rooms' | 'admin') => void;
   activeWeek?: WeekRotationType;
   onToggleActiveWeek?: (week?: WeekRotationType) => void;
 }
@@ -54,7 +54,7 @@ export const LiveHeroBanner: React.FC<LiveHeroBannerProps> = ({
   const days: DayType[] = ['SENIN', 'SELASA', 'RABU', 'KAMIS', 'JUMAT'];
 
   return (
-    <div className="bg-gradient-to-br from-emerald-900 via-emerald-800 to-teal-950 text-white rounded-3xl p-5 sm:p-7 shadow-xl shadow-emerald-950/20 mb-6 border border-emerald-700/50 relative overflow-hidden">
+    <div className="bg-gradient-to-br from-emerald-900 via-emerald-800 to-teal-950 text-white rounded-3xl p-5 sm:p-7 shadow-xl shadow-emerald-950/20 mb-6 border border-emerald-700/50 relative overflow-hidden no-print">
       
       {/* Decorative Background Elements */}
       <div className="absolute top-0 right-0 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none -mr-20 -mt-20"></div>
@@ -314,17 +314,6 @@ export const LiveHeroBanner: React.FC<LiveHeroBannerProps> = ({
             >
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400"></span>
               <span>Tabel Status KBM</span>
-            </button>
-            <button
-              onClick={() => setActiveView('original')}
-              className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 ${
-                activeView === 'original'
-                  ? 'bg-amber-400 text-amber-950 shadow-md font-extrabold'
-                  : 'bg-emerald-950/60 text-emerald-200 hover:bg-emerald-900 hover:text-white border border-emerald-700/40'
-              }`}
-            >
-              <Calendar className="w-3.5 h-3.5" />
-              <span>Tabel Matriks (10 Kuliner 1 & 2)</span>
             </button>
             <button
               onClick={() => setActiveView('today')}

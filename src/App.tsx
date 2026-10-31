@@ -29,7 +29,6 @@ import { bellPlayer } from './utils/audio';
 
 import { Header } from './components/Header';
 import { LiveHeroBanner } from './components/LiveHeroBanner';
-import { OriginalTableView } from './components/OriginalTableView';
 import { TodayScheduleView } from './components/TodayScheduleView';
 import { StatusScheduleTableView } from './components/StatusScheduleTableView';
 import { TeacherDirectoryView } from './components/TeacherDirectoryView';
@@ -173,12 +172,12 @@ export default function App() {
           }));
           if (cloudData.config.activeWeek) setActiveWeek(cloudData.config.activeWeek);
         }
-        if (cloudData.schedule && cloudData.schedule.length > 0) setSchedule(cloudData.schedule);
+        if (cloudData.schedule !== undefined) setSchedule(cloudData.schedule);
         if (cloudData.teachers && cloudData.teachers.length > 0) setTeachers(cloudData.teachers);
         if (cloudData.classes && cloudData.classes.length > 0) setClasses(cloudData.classes);
         setCloudSyncStatus('connected');
-      } else {
-        // Seed cloud database from current state so publish version receives it
+      } else if (!cloudData?.config) {
+        // Seed cloud database ONLY if cloud database is brand new (no config document exists)
         uploadFullDatabaseToFirestore(schedule, teachers, classes, config).then(() => {
           setCloudSyncStatus('connected');
         });
@@ -200,7 +199,7 @@ export default function App() {
         if (newConfig.activeWeek) setActiveWeek(newConfig.activeWeek);
       },
       onScheduleChange: (newSlots) => {
-        if (newSlots && newSlots.length > 0) {
+        if (newSlots !== undefined) {
           setSchedule(newSlots);
         }
       },
@@ -224,10 +223,19 @@ export default function App() {
     };
   }, []);
 
-  const handleSyncFullDatabaseToCloud = async (): Promise<boolean> => {
+  const handleSyncFullDatabaseToCloud = async (
+    customSchedule?: ScheduleSlot[],
+    customTeachers?: Teacher[],
+    customClasses?: SchoolClass[],
+    customConfig?: SchoolConfig
+  ): Promise<boolean> => {
     try {
-      await syncScheduleSlotsToFirestore(schedule);
-      const ok = await uploadFullDatabaseToFirestore(schedule, teachers, classes, config);
+      const schedToSync = customSchedule ?? schedule;
+      const tToSync = customTeachers ?? teachers;
+      const cToSync = customClasses ?? classes;
+      const cfgToSync = customConfig ?? config;
+      await syncScheduleSlotsToFirestore(schedToSync);
+      const ok = await uploadFullDatabaseToFirestore(schedToSync, tToSync, cToSync, cfgToSync);
       if (ok) {
         setCloudSyncStatus('connected');
       }
@@ -337,7 +345,7 @@ export default function App() {
   const [currentTime, setCurrentTime] = useState<Date>(new Date());
 
   // Navigation & Modal Views
-  const [activeView, setActiveView] = useState<'status-table' | 'today' | 'original' | 'teachers' | 'rooms' | 'admin'>('status-table');
+  const [activeView, setActiveView] = useState<'status-table' | 'today' | 'teachers' | 'rooms' | 'admin'>('status-table');
   const [isTvModeOpen, setIsTvModeOpen] = useState<boolean>(false);
   const [isAdminModalOpen, setIsAdminModalOpen] = useState<boolean>(false);
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState<boolean>(() => {
@@ -556,22 +564,6 @@ export default function App() {
                   currentTime={currentTime}
                   onSelectTeacher={() => setActiveView('teachers')}
                   onSwitchToTableView={() => setActiveView('status-table')}
-                  activeWeek={activeWeek}
-                  onToggleActiveWeek={handleToggleActiveWeek}
-                />
-              </div>
-            )}
-
-            {/* View Tab 2: Format Matriks Lengkap (Persis Gambar) */}
-            {activeView === 'original' && (
-              <div>
-                <OriginalTableView
-                  schedule={schedule}
-                  teachers={teachers}
-                  classes={classes}
-                  currentSlotId={statusResult.currentSlot?.id}
-                  currentDay={currentRealDay}
-                  filterDay="ALL"
                   activeWeek={activeWeek}
                   onToggleActiveWeek={handleToggleActiveWeek}
                 />

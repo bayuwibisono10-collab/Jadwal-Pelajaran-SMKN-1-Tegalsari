@@ -15,7 +15,7 @@ import {
   FileSpreadsheet,
   Printer
 } from 'lucide-react';
-import { ScheduleSlot, Teacher, SchoolClass, DayType, WeekRotationType, WEEK_ROTATION_CONFIG } from '../types/schedule';
+import { ScheduleSlot, Teacher, SchoolClass, SchoolConfig, DayType, WeekRotationType, WEEK_ROTATION_CONFIG } from '../types/schedule';
 import { DAYS_LIST, timeStringToMinutes } from '../utils/timeHelper';
 
 interface OriginalTableViewProps {
@@ -33,6 +33,7 @@ interface OriginalTableViewProps {
   activeWeek?: WeekRotationType;
   onToggleActiveWeek?: (week?: WeekRotationType) => void;
   onSelectDay?: (day: DayType) => void;
+  config?: SchoolConfig;
 }
 
 export const OriginalTableView: React.FC<OriginalTableViewProps> = ({
@@ -50,11 +51,22 @@ export const OriginalTableView: React.FC<OriginalTableViewProps> = ({
   activeWeek = 'NORMADA_10_PRODUKTIF_11',
   onToggleActiveWeek,
   onSelectDay,
+  config,
 }) => {
   const [showOriginalModal, setShowOriginalModal] = useState(false);
+  const [isPrintModalOpen, setIsPrintModalOpen] = useState(false);
+  const [printIncludeSignature, setPrintIncludeSignature] = useState(true);
+  const [printIncludeHeader, setPrintIncludeHeader] = useState(true);
   const [selectedTeacherCode, setSelectedTeacherCode] = useState<string | null>(null);
   const [internalDayFilter, setInternalDayFilter] = useState<DayType | 'ALL'>(filterDay);
   const [selectedWeekFilter, setSelectedWeekFilter] = useState<WeekRotationType | 'ALL'>(activeWeek || 'NORMADA_10_PRODUKTIF_11');
+
+  const handleExecutePrint = () => {
+    setIsPrintModalOpen(false);
+    setTimeout(() => {
+      window.print();
+    }, 200);
+  };
 
   // Synchronize internal week filter with activeWeek prop
   React.useEffect(() => {
@@ -109,7 +121,7 @@ export const OriginalTableView: React.FC<OriginalTableViewProps> = ({
   const specialColSpan = displayedClasses.length * 3;
 
   const renderAdminAction = (slot: ScheduleSlot) => (
-    <td className="border border-slate-300 px-2 py-1.5 text-center whitespace-nowrap bg-slate-50/90 w-20">
+    <td className="border border-slate-300 px-2 py-1.5 text-center whitespace-nowrap bg-slate-50/90 w-20 no-print">
       <div className="flex items-center justify-center gap-1">
         {onEditSlot && (
           <button
@@ -136,10 +148,10 @@ export const OriginalTableView: React.FC<OriginalTableViewProps> = ({
   );
 
   return (
-    <div className="bg-white rounded-3xl shadow-xs border border-slate-200 overflow-hidden mb-8">
+    <div className="bg-white rounded-3xl shadow-xs border border-slate-200 overflow-hidden mb-8 print-clean-container">
       
       {/* Table Toolbar Header */}
-      <div className="p-4 sm:p-6 border-b border-slate-200 bg-slate-50/70 flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="p-4 sm:p-6 border-b border-slate-200 bg-slate-50/70 flex flex-col md:flex-row md:items-center justify-between gap-4 no-print">
         <div>
           <div className="flex items-center gap-2">
             <span className="w-2.5 h-2.5 rounded-full bg-emerald-600"></span>
@@ -183,12 +195,12 @@ export const OriginalTableView: React.FC<OriginalTableViewProps> = ({
 
           <button
             type="button"
-            onClick={() => window.print()}
-            className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-xl bg-white border border-slate-300 text-slate-700 hover:bg-slate-100 transition-colors shadow-2xs"
-            title="Cetak atau simpan PDF tabel matriks ini"
+            onClick={() => setIsPrintModalOpen(true)}
+            className="flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-bold rounded-xl bg-emerald-800 text-white hover:bg-emerald-700 transition-colors shadow-2xs"
+            title="Cetak atau simpan PDF jadwal dalam format landscape yang bersih"
           >
-            <Printer className="w-3.5 h-3.5 text-slate-600" />
-            <span>Cetak / PDF</span>
+            <Printer className="w-3.5 h-3.5 text-emerald-200" />
+            <span>Cetak Jadwal (Landscape)</span>
           </button>
 
           {/* Button to compare with original photo */}
@@ -205,7 +217,7 @@ export const OriginalTableView: React.FC<OriginalTableViewProps> = ({
 
       {/* Admin Mode Info Banner */}
       {isAdmin && (
-        <div className="bg-emerald-50 border-b border-emerald-100 px-4 sm:px-6 py-2.5 flex items-center justify-between gap-3 text-xs">
+        <div className="bg-emerald-50 border-b border-emerald-100 px-4 sm:px-6 py-2.5 flex items-center justify-between gap-3 text-xs no-print">
           <div className="flex items-center gap-2 text-emerald-900 font-bold">
             <Sparkles className="w-4 h-4 text-emerald-600 shrink-0" />
             <span>
@@ -219,7 +231,7 @@ export const OriginalTableView: React.FC<OriginalTableViewProps> = ({
       )}
 
       {/* Class Selection & Display Controls */}
-      <div className="px-4 sm:px-6 py-3 bg-white border-b border-slate-100 flex flex-wrap items-center justify-between gap-3 text-xs">
+      <div className="px-4 sm:px-6 py-3 bg-white border-b border-slate-100 flex flex-wrap items-center justify-between gap-3 text-xs no-print">
         
         {/* Mode selector */}
         <div className="flex items-center gap-2">
@@ -316,7 +328,7 @@ export const OriginalTableView: React.FC<OriginalTableViewProps> = ({
       </div>
 
       {/* Filter Bar: Day & Synchronized Week Rotation */}
-      <div className="px-4 sm:px-6 py-2.5 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs">
+      <div className="px-4 sm:px-6 py-2.5 bg-slate-50 border-b border-slate-200 flex flex-wrap items-center justify-between gap-3 text-xs no-print">
         <div className="flex items-center gap-1.5 flex-wrap">
           <span className="font-bold text-slate-500 mr-1 flex items-center gap-1">
             <Table className="w-3.5 h-3.5 text-emerald-700" />
@@ -394,9 +406,49 @@ export const OriginalTableView: React.FC<OriginalTableViewProps> = ({
         </div>
       </div>
 
+      {/* Official Print Header: KOP Dinas Pendidikan SMKN 1 Tegalsari (Hanya Muncul Saat Print / PDF) */}
+      {printIncludeHeader && (
+        <div className="hidden print:block print:mb-3 print:px-2">
+          <div className="flex items-center justify-between border-b-2 border-black pb-2 mb-1">
+            <div className="w-14 h-14 flex items-center justify-center border-2 border-black rounded-lg font-black text-xs text-center shrink-0">
+              SMKN 1<br />TGS
+            </div>
+            <div className="text-center flex-1 px-3">
+              <h4 className="text-[10px] font-bold uppercase tracking-wider text-black">Pemerintah Provinsi Jawa Timur • Dinas Pendidikan</h4>
+              <h3 className="text-[11px] font-black uppercase text-black tracking-wide">Cabang Dinas Pendidikan Wilayah Kabupaten Banyuwangi</h3>
+              <h2 className="text-sm font-black uppercase text-black">SMK NEGERI 1 TEGALSARI</h2>
+              <p className="text-[9px] text-black leading-tight">
+                {config?.schoolAddress || 'Jl. KH. Abdul Majid No.09, Krajan 2, Tegalsari, Kec. Tegalsari, Kabupaten Banyuwangi'}
+              </p>
+            </div>
+            <div className="w-14 text-right text-[8px] font-mono shrink-0">
+              <span className="border border-black px-1 py-0.5 font-bold uppercase block text-center">Resmi</span>
+            </div>
+          </div>
+          <div className="border-t border-black mb-2"></div>
+
+          {/* Print Subheader / Timetable Metadata */}
+          <div className="flex items-end justify-between text-xs text-black mb-1.5 pb-1">
+            <div>
+              <h1 className="font-black text-sm uppercase tracking-tight block">
+                JADWAL PELAJARAN KBM FORMAT MATRIKS (RESMI)
+              </h1>
+              <p className="text-[10px] text-black font-medium">
+                Tahun Ajaran: <strong>{config?.academicYear || '2024/2025'}</strong> • Semester Genap • SMKN 1 Tegalsari
+              </p>
+            </div>
+            <div className="text-right text-[10px] leading-tight">
+              <div>Siklus Pekan: <strong>{selectedWeekFilter === 'NORMADA_10_PRODUKTIF_11' ? 'Pekan Normada 10 & Produktif 11' : selectedWeekFilter === 'PRODUKTIF_10_NORMADA_11' ? 'Pekan Produktif 10 & Normada 11' : 'Semua Pekan (Reguler)'}</strong></div>
+              <div>Rombel Kelas: <strong>{displayedClasses.map(c => c.name).join(' & ')}</strong></div>
+              <div>Hari: <strong>{activeDayFilter === 'ALL' ? 'Senin s.d. Jumat (Penuh)' : `Hari ${activeDayFilter}`}</strong></div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Responsive Table Container */}
-      <div className="overflow-x-auto">
-        <table className="w-full text-xs border-collapse">
+      <div className="overflow-x-auto print:overflow-visible">
+        <table className="w-full text-xs border-collapse print-table">
           <thead>
             {/* Super Header: Class Groups */}
             <tr className="bg-[#008037] text-white uppercase text-center font-black tracking-wider border-b-2 border-emerald-950">
@@ -425,7 +477,7 @@ export const OriginalTableView: React.FC<OriginalTableViewProps> = ({
 
               {/* Admin Column Header */}
               {isAdmin && (
-                <th rowSpan={2} className="border border-emerald-800/80 px-2 py-3 w-20 text-center font-bold text-xs bg-emerald-900">
+                <th rowSpan={2} className="border border-emerald-800/80 px-2 py-3 w-20 text-center font-bold text-xs bg-emerald-900 no-print">
                   AKSI ADMIN
                 </th>
               )}
@@ -606,8 +658,37 @@ export const OriginalTableView: React.FC<OriginalTableViewProps> = ({
         </table>
       </div>
 
+      {/* Official Signatures Section (Hanya Muncul Saat Print / PDF) */}
+      {printIncludeSignature && (
+        <div className="hidden print:block print:mt-4 print:px-2 break-inside-avoid">
+          <div className="grid grid-cols-3 text-center text-xs text-black gap-3 pt-2">
+            <div>
+              <p className="text-[10px]">Mengetahui,</p>
+              <p className="font-bold text-[11px]">Kepala SMKN 1 Tegalsari</p>
+              <div className="h-14"></div>
+              <p className="font-black underline uppercase text-[11px]">Drs. H. Gatot Kurnianta, M.T.</p>
+              <p className="text-[9px]">NIP. 19680812 199512 1 002</p>
+            </div>
+            <div className="flex flex-col justify-center items-center text-[9px] text-black border border-black/70 p-2 rounded">
+              <span className="font-black uppercase tracking-wider mb-1">Keterangan & Catatan KBM:</span>
+              <span>• 1 Jam Pelajaran (JP) = 35 s.d 40 Menit</span>
+              <span>• Pergantian jam dan istirahat dipandu bel otomatis</span>
+              <span>• Jadwal KBM berlaku sesuai rotasi pekan yang aktif</span>
+              <span className="mt-1 font-mono text-[8px] text-slate-600">Dicetak: {new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}</span>
+            </div>
+            <div>
+              <p className="text-[10px]">Tegalsari, {new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
+              <p className="font-bold text-[11px]">Waka Kurikulum</p>
+              <div className="h-14"></div>
+              <p className="font-black underline uppercase text-[11px]">Tim Pengembang Kurikulum</p>
+              <p className="text-[9px]">SMKN 1 Tegalsari</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Footer Info Legend */}
-      <div className="p-4 bg-slate-50 border-t border-slate-200 text-xs text-slate-600 flex flex-wrap items-center justify-between gap-3">
+      <div className="p-4 bg-slate-50 border-t border-slate-200 text-xs text-slate-600 flex flex-wrap items-center justify-between gap-3 no-print">
         <div className="flex flex-wrap items-center gap-3">
           <span className="font-bold text-slate-700">Keterangan Warna:</span>
           <span className="flex items-center gap-1.5">
@@ -710,6 +791,121 @@ export const OriginalTableView: React.FC<OriginalTableViewProps> = ({
                   (e.target as HTMLImageElement).src = '/public/assets/aistudio/image_b1e75f29.png';
                 }}
               />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal: Opsi & Konfirmasi Cetak Jadwal (Landscape) */}
+      {isPrintModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs no-print animate-in fade-in duration-150">
+          <div className="bg-white rounded-3xl max-w-md w-full p-6 shadow-2xl border border-slate-200 animate-in zoom-in-95 duration-150 text-slate-800">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 mb-4">
+              <div className="flex items-center gap-2.5">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-100 text-emerald-800 flex items-center justify-center shrink-0">
+                  <Printer className="w-5 h-5 text-emerald-700" />
+                </div>
+                <div>
+                  <h4 className="font-extrabold text-slate-900 text-base">
+                    Cetak Jadwal Pelajaran
+                  </h4>
+                  <p className="text-xs text-emerald-700 font-bold">
+                    Format Landscape (Mendatar) Bersih
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsPrintModalOpen(false)}
+                className="w-8 h-8 rounded-full bg-slate-100 hover:bg-slate-200 text-slate-500 hover:text-slate-700 flex items-center justify-center font-bold text-sm transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="space-y-4 text-xs">
+              {/* Highlight Landscape */}
+              <div className="p-3 bg-emerald-50 rounded-2xl border border-emerald-200 text-emerald-950 flex items-start gap-2.5">
+                <CheckCircle2 className="w-4 h-4 text-emerald-700 shrink-0 mt-0.5" />
+                <div className="leading-relaxed">
+                  <span className="font-bold block">Layout Otomatis Teratur (Landscape):</span>
+                  Telah diatur otomatis ke orientasi <strong>Landscape (Mendatar)</strong>. Seluruh tombol toolbar, banner, dan kolom aksi admin otomatis disembunyikan agar hasil cetak/PDF bersih dan rapi.
+                </div>
+              </div>
+
+              {/* Detail Lembar Cetak */}
+              <div className="p-3.5 bg-slate-50 rounded-2xl border border-slate-200 space-y-2">
+                <span className="font-extrabold text-slate-800 block uppercase text-[10px] tracking-wider">
+                  Pengaturan Lembar Cetak:
+                </span>
+                
+                <div className="space-y-1.5 text-slate-700">
+                  <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+                    <span className="text-slate-500">Rombel Kelas:</span>
+                    <strong className="text-slate-900">{displayedClasses.map(c => c.name).join(' & ')}</strong>
+                  </div>
+
+                  <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+                    <span className="text-slate-500">Cakupan Hari:</span>
+                    <strong className="text-slate-900">{activeDayFilter === 'ALL' ? 'Semua Hari (Senin - Jumat)' : `Hari ${activeDayFilter}`}</strong>
+                  </div>
+
+                  <div className="flex justify-between items-center py-1 border-b border-slate-200/60">
+                    <span className="text-slate-500">Siklus Pekan:</span>
+                    <strong className="text-slate-900">
+                      {selectedWeekFilter === 'NORMADA_10_PRODUKTIF_11'
+                        ? 'Pekan Normada 10 & Prod 11'
+                        : selectedWeekFilter === 'PRODUKTIF_10_NORMADA_11'
+                        ? 'Pekan Prod 10 & Normada 11'
+                        : 'Semua Siklus Pekan'}
+                    </strong>
+                  </div>
+                </div>
+
+                <div className="pt-2 space-y-2 border-t border-slate-200/80">
+                  <label className="flex items-center gap-2.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={printIncludeHeader}
+                      onChange={(e) => setPrintIncludeHeader(e.target.checked)}
+                      className="w-4 h-4 text-emerald-700 rounded border-slate-300 focus:ring-emerald-500"
+                    />
+                    <span className="font-bold text-slate-800 text-[11px]">
+                      Sertakan KOP Resmi Dinas Pendidikan SMKN 1 Tegalsari
+                    </span>
+                  </label>
+
+                  <label className="flex items-center gap-2.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={printIncludeSignature}
+                      onChange={(e) => setPrintIncludeSignature(e.target.checked)}
+                      className="w-4 h-4 text-emerald-700 rounded border-slate-300 focus:ring-emerald-500"
+                    />
+                    <span className="font-bold text-slate-800 text-[11px]">
+                      Sertakan Lembar Tanda Tangan (Kepala Sekolah & Kurikulum)
+                    </span>
+                  </label>
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-4 mt-4 border-t border-slate-100 flex gap-2.5">
+              <button
+                type="button"
+                onClick={() => setIsPrintModalOpen(false)}
+                className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-colors"
+              >
+                Batal
+              </button>
+              <button
+                type="button"
+                onClick={handleExecutePrint}
+                className="flex-1 py-2.5 bg-emerald-700 hover:bg-emerald-800 text-white rounded-xl text-xs font-bold transition-all shadow-md shadow-emerald-700/20 flex items-center justify-center gap-1.5"
+              >
+                <Printer className="w-4 h-4 text-emerald-200" />
+                <span>Mulai Cetak / Simpan PDF</span>
+              </button>
             </div>
           </div>
         </div>
