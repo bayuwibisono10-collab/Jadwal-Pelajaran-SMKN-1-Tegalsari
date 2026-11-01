@@ -2937,7 +2937,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         {adminTab === 'backup' && (
           <div className="max-w-2xl space-y-6">
             
-            {/* Cloud Database Sync (Dev & Publish) */}
+            {/* Status Database Online Resmi (Cloud Firestore) */}
             <div className="p-5 rounded-2xl border border-emerald-200 bg-gradient-to-r from-emerald-50 via-teal-50 to-white shadow-2xs">
               <div className="flex items-start justify-between gap-3">
                 <div>
@@ -2946,7 +2946,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                       <Cloud className="w-4 h-4" />
                     </span>
                     <h4 className="font-extrabold text-sm text-emerald-950">
-                      Sinkronisasi Database Cloud (Versi Dev & Publish)
+                      Status Database Online Resmi (Cloud Firestore)
                     </h4>
                     <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black border flex items-center gap-1 shadow-2xs ${
                       cloudSyncStatus === 'connected'
@@ -2960,15 +2960,15 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                       }`}></span>
                       <span>
                         {cloudSyncStatus === 'connected'
-                          ? '● Terhubung ke Cloud Firebase'
+                          ? '● Terhubung ke Database Online'
                           : cloudSyncStatus === 'connecting'
                           ? '◌ Menghubungkan...'
-                          : '○ Lokal / Offline'}
+                          : '○ Offline'}
                       </span>
                     </span>
                   </div>
                   <p className="text-xs text-emerald-800/90 mt-2 leading-relaxed">
-                    Database cloud menghubungkan data jadwal, pengajar, rombel kelas, dan pengumuman antara link pengembangan (dev), versi publish (shared URL), dan layar Mode TV secara otomatis secara real-time.
+                    Aplikasi menggunakan database online sebagai sumber data tunggal resmi (Single Source of Truth). Seluruh data jadwal KBM, direktori guru, rombel kelas, dan pengumuman sekolah dikelola langsung dari database online ini.
                   </p>
                 </div>
               </div>
@@ -2981,12 +2981,12 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                     try {
                       const ok = await onSyncToCloud?.(schedule, teachers, classes, config);
                       if (ok !== false) {
-                        showToast('✓ Berhasil menyinkronkan seluruh database ke Cloud (Data aman untuk link Publish)');
+                        showToast('✓ Berhasil memperbarui data ke Database Online');
                       } else {
-                        showToast('Gagal menyinkronkan ke Cloud. Cek koneksi internet');
+                        showToast('Gagal memperbarui ke Database Online. Cek koneksi internet');
                       }
                     } catch {
-                      showToast('Gagal menyinkronkan ke Cloud');
+                      showToast('Gagal memperbarui ke Database Online');
                     } finally {
                       setIsSyncingCloud(false);
                     }
@@ -2995,7 +2995,7 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   className="px-4 py-2.5 bg-emerald-700 hover:bg-emerald-800 active:scale-95 text-white rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-2 cursor-pointer disabled:opacity-50"
                 >
                   <RefreshCw className={`w-4 h-4 ${isSyncingCloud ? 'animate-spin' : ''}`} />
-                  <span>{isSyncingCloud ? 'Sedang Menyinkronkan...' : 'Sinkronkan Database Sekarang (Kirim ke Publish)'}</span>
+                  <span>{isSyncingCloud ? 'Sedang Menyimpan...' : 'Perbarui & Simpan ke Database Online'}</span>
                 </button>
               </div>
             </div>

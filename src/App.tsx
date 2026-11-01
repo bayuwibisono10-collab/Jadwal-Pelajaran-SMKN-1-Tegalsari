@@ -157,13 +157,13 @@ export default function App() {
   const [cloudSyncStatus, setCloudSyncStatus] = useState<'connected' | 'connecting' | 'offline'>('connecting');
   const isCloudInitialSyncDone = useRef(false);
 
-  // Establish Firestore Real-time Cloud Sync across Dev, Publish, and TV Mode
+  // Gunakan Database Online Firestore sebagai Single Source of Truth
   useEffect(() => {
     testConnection();
 
-    // Check if cloud database already has data; if empty, seed current local database to cloud once
+    // Memuat data resmi langsung dari database online Firestore
     fetchFullDatabaseFromFirestore().then((cloudData) => {
-      if (cloudData && (cloudData.config || (cloudData.schedule && cloudData.schedule.length > 0))) {
+      if (cloudData) {
         if (cloudData.config) {
           setConfig((prev) => ({
             ...prev,
@@ -174,19 +174,14 @@ export default function App() {
         }
         if (cloudData.schedule && cloudData.schedule.length > 0) {
           setSchedule(cloudData.schedule);
-        } else if (schedule.length > 0) {
-          // Cloud schedule was missing: preserve and seed local schedule to cloud immediately!
-          syncScheduleSlotsToFirestore(schedule);
-          uploadFullDatabaseToFirestore(schedule, teachers, classes, config);
         }
-        if (cloudData.teachers && cloudData.teachers.length > 0) setTeachers(cloudData.teachers);
-        if (cloudData.classes && cloudData.classes.length > 0) setClasses(cloudData.classes);
+        if (cloudData.teachers && cloudData.teachers.length > 0) {
+          setTeachers(cloudData.teachers);
+        }
+        if (cloudData.classes && cloudData.classes.length > 0) {
+          setClasses(cloudData.classes);
+        }
         setCloudSyncStatus('connected');
-      } else {
-        // Cloud has no data at all: upload local data to cloud immediately to seed publish URL!
-        uploadFullDatabaseToFirestore(schedule, teachers, classes, config).then(() => {
-          setCloudSyncStatus('connected');
-        });
       }
       isCloudInitialSyncDone.current = true;
     }).catch(() => {
@@ -194,7 +189,7 @@ export default function App() {
       isCloudInitialSyncDone.current = true;
     });
 
-    // Subscribe to live changes from cloud (instant real-time sync)
+    // Berlangganan perubahan live dari database online (real-time listener)
     const unsubscribe = subscribeToRealtimeDatabase({
       onConfigChange: (newConfig) => {
         setConfig((prev) => ({
@@ -205,7 +200,6 @@ export default function App() {
         if (newConfig.activeWeek) setActiveWeek(newConfig.activeWeek);
       },
       onScheduleChange: (newSlots) => {
-        // Guard: never overwrite local schedule with an empty array from transient network snapshots
         if (newSlots && newSlots.length > 0) {
           setSchedule(newSlots);
         }
@@ -229,24 +223,6 @@ export default function App() {
       unsubscribe();
     };
   }, []);
-
-  // Continuous background auto-sync to cloud so changes made in Dev are always pushed to Publish URL
-  const autoSyncTimerRef = useRef<NodeJS.Timeout | null>(null);
-  useEffect(() => {
-    if (!isCloudInitialSyncDone.current) return;
-    if (schedule.length === 0) return; // safety: never auto-sync empty schedule
-
-    if (autoSyncTimerRef.current) clearTimeout(autoSyncTimerRef.current);
-    autoSyncTimerRef.current = setTimeout(() => {
-      uploadFullDatabaseToFirestore(schedule, teachers, classes, config).catch((e) => {
-        console.warn('Background auto-sync to cloud failed:', e);
-      });
-    }, 1500);
-
-    return () => {
-      if (autoSyncTimerRef.current) clearTimeout(autoSyncTimerRef.current);
-    };
-  }, [schedule, teachers, classes, config]);
 
   const handleSyncFullDatabaseToCloud = async (
     customSchedule?: ScheduleSlot[],

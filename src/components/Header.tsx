@@ -110,18 +110,6 @@ export const Header: React.FC<HeaderProps> = ({
                   <span className="text-xs px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold border border-emerald-200">
                     REAL-TIME
                   </span>
-                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold border flex items-center gap-1 shadow-2xs ${
-                    cloudSyncStatus === 'connected'
-                      ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
-                      : cloudSyncStatus === 'connecting'
-                      ? 'bg-amber-50 text-amber-800 border-amber-300'
-                      : 'bg-slate-100 text-slate-600 border-slate-300'
-                  }`} title="Database tersinkronisasi otomatis antara mode pengembangan, versi rilis/publish, dan Mode TV">
-                    <span className={`w-1.5 h-1.5 rounded-full ${
-                      cloudSyncStatus === 'connected' ? 'bg-emerald-500 animate-ping' : cloudSyncStatus === 'connecting' ? 'bg-amber-500 animate-pulse' : 'bg-slate-400'
-                    }`}></span>
-                    <span>{cloudSyncStatus === 'connected' ? 'Cloud Sync (Dev & Publish)' : cloudSyncStatus === 'connecting' ? 'Menghubungkan Cloud...' : 'Lokal / Offline'}</span>
-                  </span>
                 </h1>
               </div>
               <p className="text-xs text-slate-500 font-medium line-clamp-1" title={config.schoolAddress || 'Jl. KH. Abdul Majid No.09, Krajan 2, Tegalsari, Kec. Tegalsari, Kabupaten Banyuwangi'}>
