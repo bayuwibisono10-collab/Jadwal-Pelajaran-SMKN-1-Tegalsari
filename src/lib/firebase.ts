@@ -106,23 +106,31 @@ export async function saveAllSlotsToFirestore(slots: ScheduleSlot[]): Promise<vo
   }
 }
 
-export async function syncScheduleSlotsToFirestore(slots: ScheduleSlot[]): Promise<void> {
+export async function syncScheduleSlotsToFirestore(slots: ScheduleSlot[], allowEmpty: boolean = false): Promise<void> {
   try {
-    const existingSnap = await getDocs(collection(db, 'schedule'));
-    const newSlotIds = new Set(slots.map(s => s.id));
-    
-    // Batch deletes for removed slots
-    const toDeleteDocs = existingSnap.docs.filter(d => !newSlotIds.has(d.id));
-    for (let i = 0; i < toDeleteDocs.length; i += 400) {
-      const chunk = toDeleteDocs.slice(i, i + 400);
-      const batch = writeBatch(db);
-      chunk.forEach(d => batch.delete(d.ref));
-      await batch.commit();
+    // Safety guard: NEVER wipe all cloud slots if slots is empty unless explicitly permitted by an admin action
+    if (slots.length === 0 && !allowEmpty) {
+      console.warn('syncScheduleSlotsToFirestore called with empty slots without allowEmpty flag. Skipping deletion to prevent data loss.');
+      return;
     }
 
-    // Save remaining/new slots
+    // 1. UPSERT all current slots FIRST so no documents vanish during sync
     if (slots.length > 0) {
       await saveAllSlotsToFirestore(slots);
+    }
+
+    // 2. Only after saving current slots, clean up obsolete IDs
+    const existingSnap = await getDocs(collection(db, 'schedule'));
+    const newSlotIds = new Set(slots.map(s => s.id));
+    const toDeleteDocs = existingSnap.docs.filter(d => !newSlotIds.has(d.id));
+
+    if (toDeleteDocs.length > 0) {
+      for (let i = 0; i < toDeleteDocs.length; i += 400) {
+        const chunk = toDeleteDocs.slice(i, i + 400);
+        const batch = writeBatch(db);
+        chunk.forEach(d => batch.delete(d.ref));
+        await batch.commit();
+      }
     }
   } catch (err) {
     console.error('Failed to sync schedule slots with deletion to Firestore:', err);
@@ -193,6 +201,27 @@ export async function syncClassesToFirestore(classes: SchoolClass[]): Promise<vo
   }
 }
 
+// Save atomic master backup document to Firestore
+export async function saveMasterBackupToFirestore(
+  schedule: ScheduleSlot[],
+  teachers: Teacher[],
+  classes: SchoolClass[],
+  config: SchoolConfig
+): Promise<void> {
+  try {
+    const masterRef = doc(db, 'config', 'master_database');
+    await setDoc(masterRef, {
+      config,
+      teachers,
+      classes,
+      schedule,
+      updatedAt: new Date().toISOString()
+    });
+  } catch (err) {
+    console.error('Failed to save master database backup to Firestore:', err);
+  }
+}
+
 // Upload current local database to Firestore (Seed / Publish Sync)
 export async function uploadFullDatabaseToFirestore(
   schedule: ScheduleSlot[],
@@ -201,10 +230,13 @@ export async function uploadFullDatabaseToFirestore(
   config: SchoolConfig
 ): Promise<boolean> {
   try {
+    // 1. Save atomic master backup first so any other client (Dev, Publish, TV) gets complete dataset atomically
+    await saveMasterBackupToFirestore(schedule, teachers, classes, config);
+    // 2. Save individual documents in collections for querying and modular updates
     await saveConfigToFirestore(config);
-    await saveTeachersToFirestore(teachers);
-    await saveClassesToFirestore(classes);
-    await saveAllSlotsToFirestore(schedule);
+    if (teachers.length > 0) await saveTeachersToFirestore(teachers);
+    if (classes.length > 0) await saveClassesToFirestore(classes);
+    if (schedule.length > 0) await saveAllSlotsToFirestore(schedule);
     return true;
   } catch (err) {
     console.error('Failed to push full database to Firestore:', err);
@@ -212,7 +244,7 @@ export async function uploadFullDatabaseToFirestore(
   }
 }
 
-// Download full database from Firestore
+// Download full database from Firestore with atomic master fallback
 export async function fetchFullDatabaseFromFirestore(): Promise<{
   config?: SchoolConfig;
   schedule?: ScheduleSlot[];
@@ -220,6 +252,30 @@ export async function fetchFullDatabaseFromFirestore(): Promise<{
   classes?: SchoolClass[];
 } | null> {
   try {
+    // 1. Try reading atomic master_database first
+    try {
+      const masterSnap = await getDoc(doc(db, 'config', 'master_database'));
+      if (masterSnap.exists()) {
+        const data = masterSnap.data() as {
+          config?: SchoolConfig;
+          schedule?: ScheduleSlot[];
+          teachers?: Teacher[];
+          classes?: SchoolClass[];
+        };
+        if (data.schedule && data.schedule.length > 0) {
+          return {
+            config: data.config,
+            schedule: data.schedule,
+            teachers: data.teachers && data.teachers.length > 0 ? data.teachers : undefined,
+            classes: data.classes && data.classes.length > 0 ? data.classes : undefined,
+          };
+        }
+      }
+    } catch (e) {
+      console.warn('Could not read master_database, falling back to collections:', e);
+    }
+
+    // 2. Fallback to individual collections
     const configSnap = await getDoc(doc(db, 'config', 'general'));
     const teachersSnap = await getDocs(collection(db, 'teachers'));
     const classesSnap = await getDocs(collection(db, 'classes'));
@@ -277,11 +333,13 @@ export function subscribeToRealtimeDatabase(callbacks: {
     });
     unsubscribes.push(unsubConfig);
 
-    // 2. Schedule listener
+    // 2. Schedule listener - only update if snapshot has documents to prevent wiping local data
     const unsubSchedule = onSnapshot(collection(db, 'schedule'), (snap) => {
-      if (callbacks.onScheduleChange) {
+      if (!snap.empty && callbacks.onScheduleChange) {
         const slots = snap.docs.map((d) => d.data() as ScheduleSlot);
-        callbacks.onScheduleChange(slots);
+        if (slots.length > 0) {
+          callbacks.onScheduleChange(slots);
+        }
       }
     }, (err) => {
       console.warn('Firestore schedule snapshot error:', err);
@@ -292,7 +350,9 @@ export function subscribeToRealtimeDatabase(callbacks: {
     const unsubTeachers = onSnapshot(collection(db, 'teachers'), (snap) => {
       if (!snap.empty && callbacks.onTeachersChange) {
         const tList = snap.docs.map((d) => d.data() as Teacher);
-        callbacks.onTeachersChange(tList);
+        if (tList.length > 0) {
+          callbacks.onTeachersChange(tList);
+        }
       }
     }, (err) => {
       console.warn('Firestore teachers snapshot error:', err);
@@ -303,12 +363,34 @@ export function subscribeToRealtimeDatabase(callbacks: {
     const unsubClasses = onSnapshot(collection(db, 'classes'), (snap) => {
       if (!snap.empty && callbacks.onClassesChange) {
         const cList = snap.docs.map((d) => d.data() as SchoolClass);
-        callbacks.onClassesChange(cList);
+        if (cList.length > 0) {
+          callbacks.onClassesChange(cList);
+        }
       }
     }, (err) => {
       console.warn('Firestore classes snapshot error:', err);
     });
     unsubscribes.push(unsubClasses);
+
+    // 5. Master database listener for immediate atomic synchronization
+    const unsubMaster = onSnapshot(doc(db, 'config', 'master_database'), (snap) => {
+      if (snap.exists()) {
+        const data = snap.data() as {
+          config?: SchoolConfig;
+          schedule?: ScheduleSlot[];
+          teachers?: Teacher[];
+          classes?: SchoolClass[];
+        };
+        if (data.config && callbacks.onConfigChange) callbacks.onConfigChange(data.config);
+        if (data.schedule && data.schedule.length > 0 && callbacks.onScheduleChange) callbacks.onScheduleChange(data.schedule);
+        if (data.teachers && data.teachers.length > 0 && callbacks.onTeachersChange) callbacks.onTeachersChange(data.teachers);
+        if (data.classes && data.classes.length > 0 && callbacks.onClassesChange) callbacks.onClassesChange(data.classes);
+        if (callbacks.onStatusChange) callbacks.onStatusChange('connected');
+      }
+    }, (err) => {
+      console.warn('Firestore master_database snapshot error:', err);
+    });
+    unsubscribes.push(unsubMaster);
 
   } catch (err) {
     console.error('Error establishing real-time Firestore subscriptions:', err);

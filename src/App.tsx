@@ -172,12 +172,18 @@ export default function App() {
           }));
           if (cloudData.config.activeWeek) setActiveWeek(cloudData.config.activeWeek);
         }
-        if (cloudData.schedule !== undefined) setSchedule(cloudData.schedule);
+        if (cloudData.schedule && cloudData.schedule.length > 0) {
+          setSchedule(cloudData.schedule);
+        } else if (schedule.length > 0) {
+          // Cloud schedule was missing: preserve and seed local schedule to cloud immediately!
+          syncScheduleSlotsToFirestore(schedule);
+          uploadFullDatabaseToFirestore(schedule, teachers, classes, config);
+        }
         if (cloudData.teachers && cloudData.teachers.length > 0) setTeachers(cloudData.teachers);
         if (cloudData.classes && cloudData.classes.length > 0) setClasses(cloudData.classes);
         setCloudSyncStatus('connected');
-      } else if (!cloudData?.config) {
-        // Seed cloud database ONLY if cloud database is brand new (no config document exists)
+      } else {
+        // Cloud has no data at all: upload local data to cloud immediately to seed publish URL!
         uploadFullDatabaseToFirestore(schedule, teachers, classes, config).then(() => {
           setCloudSyncStatus('connected');
         });
@@ -199,7 +205,8 @@ export default function App() {
         if (newConfig.activeWeek) setActiveWeek(newConfig.activeWeek);
       },
       onScheduleChange: (newSlots) => {
-        if (newSlots !== undefined) {
+        // Guard: never overwrite local schedule with an empty array from transient network snapshots
+        if (newSlots && newSlots.length > 0) {
           setSchedule(newSlots);
         }
       },
@@ -223,6 +230,24 @@ export default function App() {
     };
   }, []);
 
+  // Continuous background auto-sync to cloud so changes made in Dev are always pushed to Publish URL
+  const autoSyncTimerRef = useRef<NodeJS.Timeout | null>(null);
+  useEffect(() => {
+    if (!isCloudInitialSyncDone.current) return;
+    if (schedule.length === 0) return; // safety: never auto-sync empty schedule
+
+    if (autoSyncTimerRef.current) clearTimeout(autoSyncTimerRef.current);
+    autoSyncTimerRef.current = setTimeout(() => {
+      uploadFullDatabaseToFirestore(schedule, teachers, classes, config).catch((e) => {
+        console.warn('Background auto-sync to cloud failed:', e);
+      });
+    }, 1500);
+
+    return () => {
+      if (autoSyncTimerRef.current) clearTimeout(autoSyncTimerRef.current);
+    };
+  }, [schedule, teachers, classes, config]);
+
   const handleSyncFullDatabaseToCloud = async (
     customSchedule?: ScheduleSlot[],
     customTeachers?: Teacher[],
@@ -234,8 +259,10 @@ export default function App() {
       const tToSync = customTeachers ?? teachers;
       const cToSync = customClasses ?? classes;
       const cfgToSync = customConfig ?? config;
-      await syncScheduleSlotsToFirestore(schedToSync);
+      // 1. Upload atomic master backup and individual documents
       const ok = await uploadFullDatabaseToFirestore(schedToSync, tToSync, cToSync, cfgToSync);
+      // 2. Synchronize schedule collection
+      await syncScheduleSlotsToFirestore(schedToSync);
       if (ok) {
         setCloudSyncStatus('connected');
       }

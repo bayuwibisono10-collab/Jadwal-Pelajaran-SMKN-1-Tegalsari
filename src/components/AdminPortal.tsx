@@ -883,49 +883,67 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     }
 
     if (isAddingTeacher) {
-      setTeachers((prev) => [
-        ...prev,
-        {
-          ...tData,
-          id: `teacher-${Date.now()}`,
-          code: cleanCode,
-          name: cleanName,
-          subject: cleanSubject || 'Mata Pelajaran',
-        },
-      ]);
-      showToast(`Guru baru "${cleanName}" (${cleanCode}) berhasil didaftarkan`);
+      const newTeacher: Teacher = {
+        ...tData,
+        id: `teacher-${Date.now()}`,
+        code: cleanCode,
+        name: cleanName,
+        subject: cleanSubject || 'Mata Pelajaran',
+      };
+      const newTeachersList = [...teachers, newTeacher];
+      setTeachers(newTeachersList);
+      try {
+        localStorage.setItem('smkn1_teachers_v2', JSON.stringify(newTeachersList));
+        localStorage.setItem('smkn1_teachers_v1', JSON.stringify(newTeachersList));
+        window.dispatchEvent(new Event('smkn1_db_updated'));
+      } catch {}
+      syncTeachersToFirestore(newTeachersList).catch(console.error);
+      if (onSyncToCloud) onSyncToCloud(schedule, newTeachersList, classes, config).catch(console.error);
+      showToast(`Guru baru "${cleanName}" (${cleanCode}) berhasil didaftarkan (tersinkron ke Cloud)`);
     } else {
-      setTeachers((prev) =>
-        prev.map((t) =>
-          t.id === tData.id
-            ? {
-                ...t,
-                ...tData,
-                code: cleanCode,
-                name: cleanName,
-                subject: cleanSubject || t.subject,
-              }
-            : t
-        )
+      const newTeachersList = teachers.map((t) =>
+        t.id === tData.id
+          ? {
+              ...t,
+              ...tData,
+              code: cleanCode,
+              name: cleanName,
+              subject: cleanSubject || t.subject,
+            }
+          : t
       );
+      setTeachers(newTeachersList);
+      try {
+        localStorage.setItem('smkn1_teachers_v2', JSON.stringify(newTeachersList));
+        localStorage.setItem('smkn1_teachers_v1', JSON.stringify(newTeachersList));
+        window.dispatchEvent(new Event('smkn1_db_updated'));
+      } catch {}
+      syncTeachersToFirestore(newTeachersList).catch(console.error);
 
       // Sync schedule slots if teacher code changed
+      let finalSchedule = schedule;
       if (editingTeacherOriginalCode && editingTeacherOriginalCode !== cleanCode) {
-        setSchedule((prev) =>
-          prev.map((s) => {
-            let changed = false;
-            const updatedClasses = { ...s.classes };
-            Object.keys(updatedClasses).forEach((cid) => {
-              if (updatedClasses[cid]?.teacherCode?.toUpperCase() === editingTeacherOriginalCode) {
-                updatedClasses[cid] = { ...updatedClasses[cid], teacherCode: cleanCode };
-                changed = true;
-              }
-            });
-            return changed ? { ...s, classes: updatedClasses } : s;
-          })
-        );
+        finalSchedule = schedule.map((s) => {
+          let changed = false;
+          const updatedClasses = { ...s.classes };
+          Object.keys(updatedClasses).forEach((cid) => {
+            if (updatedClasses[cid]?.teacherCode?.toUpperCase() === editingTeacherOriginalCode) {
+              updatedClasses[cid] = { ...updatedClasses[cid], teacherCode: cleanCode };
+              changed = true;
+            }
+          });
+          return changed ? { ...s, classes: updatedClasses } : s;
+        });
+        setSchedule(finalSchedule);
+        try {
+          localStorage.setItem('smkn1_schedule_v2', JSON.stringify(finalSchedule));
+          localStorage.setItem('smkn1_schedule_v1', JSON.stringify(finalSchedule));
+          window.dispatchEvent(new Event('smkn1_db_updated'));
+        } catch {}
+        syncScheduleSlotsToFirestore(finalSchedule).catch(console.error);
       }
-      showToast(`Data guru "${cleanName}" (${cleanCode}) berhasil diperbarui`);
+      if (onSyncToCloud) onSyncToCloud(finalSchedule, newTeachersList, classes, config).catch(console.error);
+      showToast(`Data guru "${cleanName}" (${cleanCode}) berhasil diperbarui (tersinkron ke Cloud)`);
     }
 
     setEditingTeacher(null);
@@ -993,24 +1011,38 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         grade: classData.grade || 'X',
         roomDefault: classData.roomDefault?.trim().toUpperCase() || 'R.J1',
       };
-      setClasses((prev) => [...prev, newClass]);
-      showToast(`Kelas baru "${newClass.name}" berhasil ditambahkan`);
+      const newClassesList = [...classes, newClass];
+      setClasses(newClassesList);
+      try {
+        localStorage.setItem('smkn1_classes_v2', JSON.stringify(newClassesList));
+        localStorage.setItem('smkn1_classes_v1', JSON.stringify(newClassesList));
+        window.dispatchEvent(new Event('smkn1_db_updated'));
+      } catch {}
+      syncClassesToFirestore(newClassesList).catch(console.error);
+      if (onSyncToCloud) onSyncToCloud(schedule, teachers, newClassesList, config).catch(console.error);
+      showToast(`Kelas baru "${newClass.name}" berhasil ditambahkan (tersinkron ke Cloud)`);
     } else {
       const targetId = editingClassOriginalId || classData.id;
-      setClasses((prev) =>
-        prev.map((c) =>
-          c.id === targetId
-            ? {
-                ...c,
-                name: trimmedName.toUpperCase(),
-                department: normalizedDepartmentName || c.department,
-                grade: classData.grade || c.grade,
-                roomDefault: classData.roomDefault?.trim().toUpperCase() || c.roomDefault,
-              }
-            : c
-        )
+      const newClassesList = classes.map((c) =>
+        c.id === targetId
+          ? {
+              ...c,
+              name: trimmedName.toUpperCase(),
+              department: normalizedDepartmentName || c.department,
+              grade: classData.grade || c.grade,
+              roomDefault: classData.roomDefault?.trim().toUpperCase() || c.roomDefault,
+            }
+          : c
       );
-      showToast(`Data kelas "${trimmedName.toUpperCase()}" berhasil diperbarui`);
+      setClasses(newClassesList);
+      try {
+        localStorage.setItem('smkn1_classes_v2', JSON.stringify(newClassesList));
+        localStorage.setItem('smkn1_classes_v1', JSON.stringify(newClassesList));
+        window.dispatchEvent(new Event('smkn1_db_updated'));
+      } catch {}
+      syncClassesToFirestore(newClassesList).catch(console.error);
+      if (onSyncToCloud) onSyncToCloud(schedule, teachers, newClassesList, config).catch(console.error);
+      showToast(`Data kelas "${trimmedName.toUpperCase()}" berhasil diperbarui (tersinkron ke Cloud)`);
     }
 
     setEditingClass(null);
@@ -1020,28 +1052,36 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
   };
 
   const handleImportTeachers = (newTeachers: Teacher[], mode: 'merge' | 'replace') => {
+    let finalTeachers: Teacher[];
     if (mode === 'replace') {
+      finalTeachers = newTeachers;
       setTeachers(newTeachers);
       showToast(`${newTeachers.length} data guru berhasil diimpor (menggantikan data lama)`);
     } else {
-      setTeachers((prev) => {
-        const updated = [...prev];
-        newTeachers.forEach((nt) => {
-          const existingIdx = updated.findIndex((t) => t.code.toUpperCase() === nt.code.toUpperCase());
-          if (existingIdx !== -1) {
-            updated[existingIdx] = { 
-              ...updated[existingIdx], 
-              name: nt.name, 
-              subject: nt.subject 
-            };
-          } else {
-            updated.push(nt);
-          }
-        });
-        return updated;
+      const updated = [...teachers];
+      newTeachers.forEach((nt) => {
+        const existingIdx = updated.findIndex((t) => t.code.toUpperCase() === nt.code.toUpperCase());
+        if (existingIdx !== -1) {
+          updated[existingIdx] = { 
+            ...updated[existingIdx], 
+            name: nt.name, 
+            subject: nt.subject 
+          };
+        } else {
+          updated.push(nt);
+        }
       });
+      finalTeachers = updated;
+      setTeachers(updated);
       showToast(`${newTeachers.length} data guru berhasil digabungkan (Merge)`);
     }
+    try {
+      localStorage.setItem('smkn1_teachers_v2', JSON.stringify(finalTeachers));
+      localStorage.setItem('smkn1_teachers_v1', JSON.stringify(finalTeachers));
+      window.dispatchEvent(new Event('smkn1_db_updated'));
+    } catch {}
+    syncTeachersToFirestore(finalTeachers).catch(console.error);
+    if (onSyncToCloud) onSyncToCloud(schedule, finalTeachers, classes, config).catch(console.error);
   };
 
   // ================= Smart Non-Destructive Schedule Merge Helper =================
@@ -1169,6 +1209,13 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
         isDanger: true,
         onConfirm: () => {
           setSchedule(newSlots);
+          try {
+            localStorage.setItem('smkn1_schedule_v2', JSON.stringify(newSlots));
+            localStorage.setItem('smkn1_schedule_v1', JSON.stringify(newSlots));
+            window.dispatchEvent(new Event('smkn1_db_updated'));
+          } catch {}
+          syncScheduleSlotsToFirestore(newSlots).catch(console.error);
+          if (onSyncToCloud) onSyncToCloud(newSlots, teachers, classes, config).catch(console.error);
           showToast(`${newSlots.length} sesi jadwal berhasil diimpor (menggantikan seluruh jadwal lama)`);
           setConfirmDialog(null);
         },
@@ -1178,7 +1225,14 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
 
     const merged = smartMergeSchedule(schedule, newSlots, mode, targetClassIds);
     setSchedule(merged);
-    showToast(`${newSlots.length} sesi jadwal berhasil digabungkan (seluruh data jadwal lama tetap aman).`);
+    try {
+      localStorage.setItem('smkn1_schedule_v2', JSON.stringify(merged));
+      localStorage.setItem('smkn1_schedule_v1', JSON.stringify(merged));
+      window.dispatchEvent(new Event('smkn1_db_updated'));
+    } catch {}
+    syncScheduleSlotsToFirestore(merged).catch(console.error);
+    if (onSyncToCloud) onSyncToCloud(merged, teachers, classes, config).catch(console.error);
+    showToast(`${newSlots.length} sesi jadwal berhasil digabungkan & tersinkron ke Cloud (data kelas lain tetap aman).`);
   };
 
   // Handler for "⚡ Tambah Jadwal Otomatis" feature modal
@@ -1246,118 +1300,167 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
     });
 
     // Merge non-destructively!
-    setSchedule((prevSchedule) => {
-      const merged = prevSchedule.map((slot) => ({
-        ...slot,
-        classes: { ...slot.classes },
-      }));
+    const merged = schedule.map((slot) => ({
+      ...slot,
+      classes: { ...slot.classes },
+    }));
 
-      generatedSlots.forEach((gen) => {
-        const existingIdx = merged.findIndex((s) => {
-          if (s.day !== gen.day) return false;
-          if (gen.periodNumber && s.periodNumber && String(gen.periodNumber) === String(s.periodNumber)) {
-            return true;
-          }
-          return Math.abs(timeStringToMinutes(s.timeStart) - timeStringToMinutes(gen.timeStart)) < 12;
-        });
+    generatedSlots.forEach((gen) => {
+      const existingIdx = merged.findIndex((s) => {
+        if (s.day !== gen.day) return false;
+        if (gen.periodNumber && s.periodNumber && String(gen.periodNumber) === String(s.periodNumber)) {
+          return true;
+        }
+        return Math.abs(timeStringToMinutes(s.timeStart) - timeStringToMinutes(gen.timeStart)) < 12;
+      });
 
-        if (existingIdx !== -1) {
-          // Slot already exists on this day:
-          const existingSlot = merged[existingIdx];
-          const updatedClasses = { ...existingSlot.classes };
+      if (existingIdx !== -1) {
+        // Slot already exists on this day:
+        const existingSlot = merged[existingIdx];
+        const updatedClasses = { ...existingSlot.classes };
 
-          targetClassIds.forEach((cid) => {
-            if (autoGenKeepExistingData) {
-              // Only fill if existing assignment is completely empty!
-              if (!updatedClasses[cid] || !updatedClasses[cid].subject || updatedClasses[cid].subject.trim() === '') {
-                updatedClasses[cid] = gen.classes[cid];
-              }
-            } else {
-              // Overwrite only targeted class
+        targetClassIds.forEach((cid) => {
+          if (autoGenKeepExistingData) {
+            // Only fill if existing assignment is completely empty!
+            if (!updatedClasses[cid] || !updatedClasses[cid].subject || updatedClasses[cid].subject.trim() === '') {
               updatedClasses[cid] = gen.classes[cid];
             }
-          });
+          } else {
+            // Overwrite only targeted class
+            updatedClasses[cid] = gen.classes[cid];
+          }
+        });
 
-          // Ensure special types stay accurate
-          merged[existingIdx] = {
-            ...existingSlot,
-            periodNumber: existingSlot.periodNumber || gen.periodNumber,
-            type: gen.type !== 'REGULAR' ? gen.type : existingSlot.type,
-            title: gen.title || existingSlot.title,
-            classes: updatedClasses,
-          };
-        } else {
-          // Slot does not exist on this day yet: add it
-          const completeClasses: Record<string, { subject: string; teacherCode: string; room: string }> = {};
-          classes.forEach((c) => {
-            completeClasses[c.id] = gen.classes[c.id] || { subject: '', teacherCode: '', room: c.roomDefault || 'R.J1' };
-          });
-          merged.push({
-            ...gen,
-            classes: completeClasses,
-          });
-        }
-      });
-
-      // Sort
-      const dayOrder: Record<DayType, number> = {
-        SENIN: 1,
-        SELASA: 2,
-        RABU: 3,
-        KAMIS: 4,
-        JUMAT: 5,
-        SABTU: 6,
-      };
-      merged.sort((a, b) => {
-        const dDiff = (dayOrder[a.day] || 99) - (dayOrder[b.day] || 99);
-        if (dDiff !== 0) return dDiff;
-        return timeStringToMinutes(a.timeStart) - timeStringToMinutes(b.timeStart);
-      });
-
-      return merged;
+        // Ensure special types stay accurate
+        merged[existingIdx] = {
+          ...existingSlot,
+          periodNumber: existingSlot.periodNumber || gen.periodNumber,
+          type: gen.type !== 'REGULAR' ? gen.type : existingSlot.type,
+          title: gen.title || existingSlot.title,
+          classes: updatedClasses,
+        };
+      } else {
+        // Slot does not exist on this day yet: add it
+        const completeClasses: Record<string, { subject: string; teacherCode: string; room: string }> = {};
+        classes.forEach((c) => {
+          completeClasses[c.id] = gen.classes[c.id] || { subject: '', teacherCode: '', room: c.roomDefault || 'R.J1' };
+        });
+        merged.push({
+          ...gen,
+          classes: completeClasses,
+        });
+      }
     });
 
+    // Sort
+    const dayOrder: Record<DayType, number> = {
+      SENIN: 1,
+      SELASA: 2,
+      RABU: 3,
+      KAMIS: 4,
+      JUMAT: 5,
+      SABTU: 6,
+    };
+    merged.sort((a, b) => {
+      const dDiff = (dayOrder[a.day] || 99) - (dayOrder[b.day] || 99);
+      if (dDiff !== 0) return dDiff;
+      return timeStringToMinutes(a.timeStart) - timeStringToMinutes(b.timeStart);
+    });
+
+    setSchedule(merged);
+    try {
+      localStorage.setItem('smkn1_schedule_v2', JSON.stringify(merged));
+      localStorage.setItem('smkn1_schedule_v1', JSON.stringify(merged));
+      window.dispatchEvent(new Event('smkn1_db_updated'));
+    } catch {}
+    syncScheduleSlotsToFirestore(merged).catch(console.error);
+    if (onSyncToCloud) onSyncToCloud(merged, teachers, classes, config).catch(console.error);
+
     setIsAutoGenerateModalOpen(false);
-    showToast(`Jadwal KBM otomatis berhasil ditambahkan. Seluruh data jadwal lama tetap aman tersimpan.`);
+    showToast(`Jadwal KBM otomatis berhasil ditambahkan & tersinkron ke Cloud.`);
   };
 
   const handleImportClasses = (newClasses: SchoolClass[], mode: 'replace' | 'merge') => {
+    let finalClasses: SchoolClass[];
     if (mode === 'replace') {
+      finalClasses = newClasses;
       setClasses(newClasses);
       showToast(`${newClasses.length} rombel kelas berhasil diimpor (menggantikan kelas lama)`);
     } else {
-      setClasses((prev) => {
-        const updated = [...prev];
-        newClasses.forEach((nc) => {
-          const existingIdx = updated.findIndex((c) => c.id === nc.id || c.name.toUpperCase() === nc.name.toUpperCase());
-          if (existingIdx !== -1) {
-            updated[existingIdx] = nc;
-          } else {
-            updated.push(nc);
-          }
-        });
-        return updated;
+      const updated = [...classes];
+      newClasses.forEach((nc) => {
+        const existingIdx = updated.findIndex((c) => c.id === nc.id || c.name.toUpperCase() === nc.name.toUpperCase());
+        if (existingIdx !== -1) {
+          updated[existingIdx] = nc;
+        } else {
+          updated.push(nc);
+        }
       });
+      finalClasses = updated;
+      setClasses(updated);
       showToast(`${newClasses.length} rombel kelas berhasil diperbarui/ditambahkan`);
     }
+    try {
+      localStorage.setItem('smkn1_classes_v2', JSON.stringify(finalClasses));
+      localStorage.setItem('smkn1_classes_v1', JSON.stringify(finalClasses));
+      window.dispatchEvent(new Event('smkn1_db_updated'));
+    } catch {}
+    syncClassesToFirestore(finalClasses).catch(console.error);
+    if (onSyncToCloud) onSyncToCloud(schedule, teachers, finalClasses, config).catch(console.error);
   };
 
   const handleImportAll = (payload: { schedule?: ScheduleSlot[]; teachers?: Teacher[]; classes?: SchoolClass[] }) => {
     const msgs: string[] = [];
+    let curClasses = classes;
+    let curTeachers = teachers;
+    let curSchedule = schedule;
+
     if (payload.classes && payload.classes.length > 0) {
-      handleImportClasses(payload.classes, 'merge');
+      const updated = [...classes];
+      payload.classes.forEach((nc) => {
+        const existingIdx = updated.findIndex((c) => c.id === nc.id || c.name.toUpperCase() === nc.name.toUpperCase());
+        if (existingIdx !== -1) {
+          updated[existingIdx] = nc;
+        } else {
+          updated.push(nc);
+        }
+      });
+      curClasses = updated;
+      setClasses(updated);
       msgs.push(`${payload.classes.length} kelas`);
     }
     if (payload.teachers && payload.teachers.length > 0) {
-      handleImportTeachers(payload.teachers, 'merge');
+      const updated = [...teachers];
+      payload.teachers.forEach((nt) => {
+        const existingIdx = updated.findIndex((t) => t.code.toUpperCase() === nt.code.toUpperCase());
+        if (existingIdx !== -1) {
+          updated[existingIdx] = { ...updated[existingIdx], name: nt.name, subject: nt.subject };
+        } else {
+          updated.push(nt);
+        }
+      });
+      curTeachers = updated;
+      setTeachers(updated);
       msgs.push(`${payload.teachers.length} guru`);
     }
     if (payload.schedule && payload.schedule.length > 0) {
       const merged = smartMergeSchedule(schedule, payload.schedule, 'merge');
+      curSchedule = merged;
       setSchedule(merged);
-      msgs.push(`${payload.schedule.length} jadwal (digabungkan aman)`);
+      msgs.push(`${payload.schedule.length} jadwal`);
     }
-    showToast(`Berhasil mengimpor: ${msgs.join(', ')}`);
+
+    try {
+      localStorage.setItem('smkn1_schedule_v2', JSON.stringify(curSchedule));
+      localStorage.setItem('smkn1_teachers_v2', JSON.stringify(curTeachers));
+      localStorage.setItem('smkn1_classes_v2', JSON.stringify(curClasses));
+      window.dispatchEvent(new Event('smkn1_db_updated'));
+    } catch {}
+
+    if (onSyncToCloud) {
+      onSyncToCloud(curSchedule, curTeachers, curClasses, config).catch(console.error);
+    }
+    showToast(`Berhasil mengimpor & menyinkronkan ke Cloud: ${msgs.join(', ')}`);
   };
 
   // ================= Backup & Export =================
@@ -2876,9 +2979,9 @@ export const AdminPortal: React.FC<AdminPortalProps> = ({
                   onClick={async () => {
                     setIsSyncingCloud(true);
                     try {
-                      const ok = await onSyncToCloud?.();
+                      const ok = await onSyncToCloud?.(schedule, teachers, classes, config);
                       if (ok !== false) {
-                        showToast('Berhasil menyinkronkan seluruh database ke Cloud (Dev & Publish)');
+                        showToast('✓ Berhasil menyinkronkan seluruh database ke Cloud (Data aman untuk link Publish)');
                       } else {
                         showToast('Gagal menyinkronkan ke Cloud. Cek koneksi internet');
                       }
